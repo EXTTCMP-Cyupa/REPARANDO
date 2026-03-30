@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS work_order (
+    id UUID PRIMARY KEY,
+    client_id UUID NOT NULL,
+    worker_id UUID NOT NULL,
+    status VARCHAR(30) NOT NULL,
+    CONSTRAINT fk_work_order_worker FOREIGN KEY (worker_id) REFERENCES worker_account (id)
+);
+
+INSERT INTO work_order (id, client_id, worker_id, status)
+VALUES
+    ('22222222-2222-2222-2222-222222222222', '33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', 'DIAGNOSTICO')
+ON CONFLICT (id) DO NOTHING;
