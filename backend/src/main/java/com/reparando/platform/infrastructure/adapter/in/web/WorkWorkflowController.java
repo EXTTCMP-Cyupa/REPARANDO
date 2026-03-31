@@ -4,6 +4,8 @@ import com.reparando.platform.domain.model.WorkOrder;
 import com.reparando.platform.domain.model.WorkMaterial;
 import com.reparando.platform.domain.model.WorkStatus;
 import com.reparando.platform.domain.port.in.WorkWorkflowUseCase;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -29,7 +31,7 @@ public class WorkWorkflowController {
 
     @PostMapping("/{workOrderId}/status")
     @ResponseStatus(HttpStatus.OK)
-    public Mono<WorkOrder> moveStatus(@PathVariable UUID workOrderId, @RequestBody MoveStatusRequest request) {
+    public Mono<WorkOrder> moveStatus(@PathVariable UUID workOrderId, @RequestBody @Valid MoveStatusRequest request) {
         return workWorkflowUseCase.moveWorkStatus(workOrderId, request.newStatus());
     }
 
@@ -45,7 +47,7 @@ public class WorkWorkflowController {
 
     @PostMapping("/{workOrderId}/materials")
     @ResponseStatus(HttpStatus.CREATED)
-    public Mono<WorkMaterial> addMaterial(@PathVariable UUID workOrderId, @RequestBody AddMaterialRequest request) {
+    public Mono<WorkMaterial> addMaterial(@PathVariable UUID workOrderId, @RequestBody @Valid AddMaterialRequest request) {
         return workWorkflowUseCase.addMaterial(
             workOrderId,
             request.workerId(),
@@ -68,7 +70,7 @@ public class WorkWorkflowController {
         @NotNull UUID workerId,
         @NotBlank String name,
         @NotNull @Min(1) Integer quantity,
-        @NotNull BigDecimal unitCost
+        @NotNull @DecimalMin("0.01") BigDecimal unitCost
     ) {
     }
 }
