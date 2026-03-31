@@ -1,6 +1,7 @@
 package com.reparando.platform.infrastructure.adapter.out.persistence;
 
 import com.reparando.platform.domain.model.DepositReceipt;
+import com.reparando.platform.domain.model.PaymentMethod;
 import com.reparando.platform.domain.model.DepositStatus;
 import com.reparando.platform.domain.model.LeadCharge;
 import com.reparando.platform.domain.model.WorkerAccount;
@@ -65,10 +66,11 @@ public class FinancialPersistenceAdapter implements WorkerAccountRepositoryPort,
     @Override
     public Mono<DepositReceipt> save(DepositReceipt receipt) {
         var spec = databaseClient.sql("""
-                INSERT INTO deposit_receipt(id, worker_id, amount, image_path, status, created_at, reviewed_by)
-                VALUES (:id, :workerId, :amount, :imagePath, :status, :createdAt, :reviewedBy)
+                INSERT INTO deposit_receipt(id, worker_id, amount, payment_method, image_path, status, created_at, reviewed_by)
+                VALUES (:id, :workerId, :amount, :paymentMethod, :imagePath, :status, :createdAt, :reviewedBy)
                 ON CONFLICT (id) DO UPDATE
                 SET amount = EXCLUDED.amount,
+                    payment_method = EXCLUDED.payment_method,
                     image_path = EXCLUDED.image_path,
                     status = EXCLUDED.status,
                     reviewed_by = EXCLUDED.reviewed_by
@@ -76,6 +78,7 @@ public class FinancialPersistenceAdapter implements WorkerAccountRepositoryPort,
             .bind("id", receipt.id())
             .bind("workerId", receipt.workerId())
             .bind("amount", receipt.amount())
+            .bind("paymentMethod", receipt.paymentMethod().name())
             .bind("imagePath", receipt.imagePath())
             .bind("status", receipt.status().name())
             .bind("createdAt", receipt.createdAt());
@@ -99,6 +102,11 @@ public class FinancialPersistenceAdapter implements WorkerAccountRepositoryPort,
     @Override
     public Flux<DepositReceipt> findPending() {
         return depositRepo.findPending().map(this::toDomain);
+    }
+
+    @Override
+    public Flux<DepositReceipt> findByWorkerId(UUID workerId) {
+        return depositRepo.findByWorkerIdOrderByCreatedAtDesc(workerId).map(this::toDomain);
     }
 
     private WorkerAccountEntity toEntity(WorkerAccount source) {
@@ -126,6 +134,7 @@ public class FinancialPersistenceAdapter implements WorkerAccountRepositoryPort,
             source.id(),
             source.workerId(),
             source.amount(),
+            PaymentMethod.valueOf(source.paymentMethod()),
             source.imagePath(),
             DepositStatus.valueOf(source.status()),
             source.createdAt(),

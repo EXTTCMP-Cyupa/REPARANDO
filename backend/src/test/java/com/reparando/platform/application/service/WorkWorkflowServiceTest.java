@@ -11,6 +11,8 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -32,7 +34,7 @@ class WorkWorkflowServiceTest {
     void shouldAddMaterialWhenOrderBelongsToWorker() {
         UUID workOrderId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         UUID workerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
-        WorkOrder order = new WorkOrder(workOrderId, UUID.fromString("33333333-3333-3333-3333-333333333333"), workerId, WorkStatus.DIAGNOSTICO);
+        WorkOrder order = buildOrder(workOrderId, UUID.fromString("33333333-3333-3333-3333-333333333333"), workerId, WorkStatus.DIAGNOSTICO);
 
         when(workOrderRepository.findById(workOrderId)).thenReturn(Mono.just(order));
         when(workMaterialRepository.save(any(WorkMaterial.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
@@ -89,7 +91,7 @@ class WorkWorkflowServiceTest {
         UUID workOrderId = UUID.randomUUID();
         UUID ownerWorkerId = UUID.randomUUID();
         UUID otherWorkerId = UUID.randomUUID();
-        WorkOrder order = new WorkOrder(workOrderId, UUID.randomUUID(), ownerWorkerId, WorkStatus.DIAGNOSTICO);
+        WorkOrder order = buildOrder(workOrderId, UUID.randomUUID(), ownerWorkerId, WorkStatus.DIAGNOSTICO);
 
         when(workOrderRepository.findById(workOrderId)).thenReturn(Mono.just(order));
 
@@ -116,5 +118,28 @@ class WorkWorkflowServiceTest {
             .verifyComplete();
 
         verify(workMaterialRepository).findByWorkOrderId(workOrderId);
+    }
+
+    private WorkOrder buildOrder(UUID workOrderId, UUID clientId, UUID workerId, WorkStatus status) {
+        return new WorkOrder(
+            workOrderId,
+            clientId,
+            workerId,
+            status,
+            OffsetDateTime.now(),
+            null,
+            null,
+            null,
+            List.of(),
+            null,
+            null,
+            List.of(),
+            null,
+            List.of(),
+            List.of(),
+            null,
+            null,
+            null
+        );
     }
 }

@@ -1,6 +1,7 @@
 package com.reparando.platform.domain.port.out;
 
 import com.reparando.platform.domain.model.ServiceNeed;
+import com.reparando.platform.domain.model.ServiceNeedStatus;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -10,5 +11,6 @@ public interface ServiceNeedRepositoryPort {
     Mono<ServiceNeed> save(ServiceNeed need);
     Mono<ServiceNeed> findNeedById(UUID needId);
     Flux<ServiceNeed> findAll();
+    Flux<ServiceNeed> findByStatus(ServiceNeedStatus status);
     Flux<ServiceNeed> findByClientId(UUID clientId);
 }

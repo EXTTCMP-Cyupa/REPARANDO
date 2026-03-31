@@ -6,7 +6,16 @@ import { useAuth } from "../../context/AuthContext";
 
 export function AdminDashboard() {
   const { session } = useAuth();
-  const [deposits, setDeposits] = useState<Array<{ id: string; workerName: string; amount: number; imagePath: string; status: "PENDING" }>>([]);
+  const [deposits, setDeposits] = useState<
+    Array<{
+      id: string;
+      workerName: string;
+      amount: number;
+      paymentMethod: "DEPOSITO" | "TRANSFERENCIA";
+      imagePath: string;
+      status: "PENDING";
+    }>
+  >([]);
   const [policy, setPolicy] = useState({ leadCost: 1.5, trustCreditLimit: -3 });
   const [leadCostInput, setLeadCostInput] = useState("1.50");
   const [trustLimitInput, setTrustLimitInput] = useState("-3.00");
@@ -52,6 +61,7 @@ export function AdminDashboard() {
             id: item.id,
             workerName: item.workerId,
             amount: item.amount,
+            paymentMethod: item.paymentMethod,
             imagePath: item.imagePath,
             status: "PENDING" as const
           }))
@@ -175,6 +185,7 @@ export function AdminDashboard() {
           <article key={deposit.id} className="rounded-xl border border-brand-100 bg-white p-4">
             <p className="font-bold">{deposit.workerName}</p>
             <p className="text-sm">Monto: ${deposit.amount.toFixed(2)}</p>
+            <p className="text-sm">Medio: {deposit.paymentMethod}</p>
             <p className="text-sm">Comprobante: {deposit.imagePath}</p>
             <div className="mt-3 flex gap-2">
               <button

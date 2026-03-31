@@ -3,21 +3,32 @@ package com.reparando.platform.application.service;
 import com.reparando.platform.domain.model.ProfessionalProfile;
 import com.reparando.platform.domain.port.in.MarketplaceUseCase;
 import com.reparando.platform.domain.port.out.ProfessionalProfileRepositoryPort;
+import com.reparando.platform.domain.port.out.WorkerAccountRepositoryPort;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @Service
 public class MarketplaceService implements MarketplaceUseCase {
 
     private final ProfessionalProfileRepositoryPort profileRepository;
+    private final WorkerAccountRepositoryPort workerAccountRepository;
 
-    public MarketplaceService(ProfessionalProfileRepositoryPort profileRepository) {
+    public MarketplaceService(
+        ProfessionalProfileRepositoryPort profileRepository,
+        WorkerAccountRepositoryPort workerAccountRepository
+    ) {
         this.profileRepository = profileRepository;
+        this.workerAccountRepository = workerAccountRepository;
     }
 
     @Override
     public Flux<ProfessionalProfile> search(String category, Double minRating, Double nearLat, Double nearLng, Double maxKm) {
         return profileRepository.findAll()
+            .flatMap(profile -> workerAccountRepository.findWorkerById(profile.workerId())
+                .filter(worker -> !worker.blocked())
+                .map(worker -> profile)
+                .switchIfEmpty(Mono.empty()))
             .filter(profile -> category == null || profile.category().equalsIgnoreCase(category))
             .filter(profile -> minRating == null || profile.rating() >= minRating)
             .filter(profile -> {

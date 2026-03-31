@@ -62,7 +62,29 @@ export async function getWorkerWorkOrders(workerId: string, token?: string) {
     headers: authHeaders(token)
   });
   if (!response.ok) throw new Error("No fue posible obtener órdenes de trabajo");
-  return response.json() as Promise<Array<{ id: string; clientId: string; workerId: string; status: string }>>;
+  return response.json() as Promise<Array<{
+    id: string;
+    clientId: string;
+    workerId: string;
+    status: string;
+    quotationLaborCost?: number | null;
+    quotationMaterialsCost?: number | null;
+    clientApprovalDate?: string | null;
+    completedAt?: string | null;
+  }>>;
+}
+
+export async function createWorkOrder(
+  input: { clientId: string; workerId: string; description: string; category: string },
+  token?: string
+) {
+  const response = await requestWithLocalFallback("/workflow", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error("No fue posible crear orden de trabajo");
+  return response.json() as Promise<any>;
 }
 
 export async function getClientWorkOrders(clientId: string, token?: string) {
@@ -70,7 +92,25 @@ export async function getClientWorkOrders(clientId: string, token?: string) {
     headers: authHeaders(token)
   });
   if (!response.ok) throw new Error("No fue posible obtener órdenes del cliente");
-  return response.json() as Promise<Array<{ id: string; clientId: string; workerId: string; status: string }>>;
+  return response.json() as Promise<
+    Array<{
+      id: string;
+      clientId: string;
+      workerId: string;
+      status: string;
+      quotationLaborCost?: number | null;
+      quotationMaterialsCost?: number | null;
+      clientApprovalDate?: string | null;
+      completedAt?: string | null;
+      workNotes?: Array<{
+        description: string;
+        additionalCost: number;
+        evidencePhotos: string;
+        createdAt: string;
+        clientApproved: boolean | null;
+      }>;
+    }>
+  >;
 }
 
 export async function moveWorkOrderStatus(workOrderId: string, newStatus: string, token?: string) {
@@ -148,6 +188,32 @@ export async function searchMarketplaceProfessionals(params: MarketplaceSearchPa
   >;
 }
 
+export async function contactMarketplaceProfessional(
+  input: { clientId: string; workerId: string; description: string; category: string },
+  token?: string
+) {
+  const response = await requestWithLocalFallback("/marketplace/contact", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(input)
+  });
+
+  if (!response.ok) {
+    let message = "No fue posible contactar al profesional";
+    try {
+      const payload = (await response.json()) as { message?: string };
+      if (payload.message) {
+        message = payload.message;
+      }
+    } catch {
+      // ignore parse failures and keep default message
+    }
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<{ id: string; clientId: string; workerId: string; status: string }>;
+}
+
 export async function publishServiceNeed(
   input: { clientId: string; title: string; description: string; category: string },
   token?: string
@@ -165,6 +231,11 @@ export async function publishServiceNeed(
     description: string;
     category: string;
     createdAt: string;
+    status: "OPEN" | "ASSIGNED";
+    selectedBidId?: string | null;
+    selectedWorkerId?: string | null;
+    assignedWorkOrderId?: string | null;
+    assignedAt?: string | null;
   }>;
 }
 
@@ -182,6 +253,11 @@ export async function listServiceNeeds(clientId?: string, token?: string) {
       description: string;
       category: string;
       createdAt: string;
+      status: "OPEN" | "ASSIGNED";
+      selectedBidId?: string | null;
+      selectedWorkerId?: string | null;
+      assignedWorkOrderId?: string | null;
+      assignedAt?: string | null;
     }>
   >;
 }
@@ -246,7 +322,15 @@ export async function getPendingDeposits(token?: string) {
   });
   if (!response.ok) throw new Error("No fue posible obtener depósitos pendientes");
   return response.json() as Promise<
-    Array<{ id: string; workerId: string; amount: number; imagePath: string; status: string; reviewedBy: string | null }>
+    Array<{
+      id: string;
+      workerId: string;
+      amount: number;
+      paymentMethod: "DEPOSITO" | "TRANSFERENCIA";
+      imagePath: string;
+      status: string;
+      reviewedBy: string | null;
+    }>
   >;
 }
 
@@ -312,4 +396,219 @@ export async function rejectDeposit(depositId: string, adminId: string, token?: 
     status: "APPROVED" | "PENDING" | "REJECTED";
     reviewedBy: string | null;
   }>;
+}
+
+export async function uploadDepositReceiptImage(file: File, token?: string): Promise<{ imagePath: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await requestWithLocalFallback("/finance/deposit/upload", {
+    method: "POST",
+    headers,
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error("No fue posible subir el comprobante de depósito");
+  }
+
+  return response.json() as Promise<{ imagePath: string }>;
+}
+
+export async function submitDepositReceipt(
+  input: { workerId: string; amount: number; paymentMethod: "DEPOSITO" | "TRANSFERENCIA"; imagePath: string },
+  token?: string
+) {
+  const response = await requestWithLocalFallback("/finance/deposit", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(input)
+  });
+
+  if (!response.ok) {
+    throw new Error("No fue posible registrar el depósito");
+  }
+
+  return response.json() as Promise<{
+    id: string;
+    workerId: string;
+    amount: number;
+    paymentMethod: "DEPOSITO" | "TRANSFERENCIA";
+    imagePath: string;
+    status: "APPROVED" | "PENDING" | "REJECTED";
+    reviewedBy: string | null;
+  }>;
+}
+
+export async function getWorkerDeposits(workerId: string, token?: string) {
+  const response = await requestWithLocalFallback(`/finance/workers/${workerId}/deposits`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("No fue posible cargar historial de depósitos");
+  }
+
+  return response.json() as Promise<
+    Array<{
+      id: string;
+      workerId: string;
+      amount: number;
+      paymentMethod: "DEPOSITO" | "TRANSFERENCIA";
+      imagePath: string;
+      status: "APPROVED" | "PENDING" | "REJECTED";
+      createdAt: string;
+      reviewedBy: string | null;
+    }>
+  >;
+}
+
+// ========== IMAGE UPLOAD ==========
+export async function uploadImage(file: File, token?: string): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await requestWithLocalFallback("/images/upload", {
+    method: "POST",
+    headers: { Authorization: token ? `Bearer ${token}` : "" },
+    body: formData
+  });
+
+  if (!response.ok) throw new Error("No fue posible subir la imagen");
+  return response.json() as Promise<{ url: string }>;
+}
+
+// ========== DIAGNOSTIC WORKFLOW ==========
+export async function submitDiagnostic(
+  workOrderId: string,
+  input: { summary: string; photoUrls: string[] },
+  token?: string
+) {
+  const response = await requestWithLocalFallback(`/workflow/${workOrderId}/diagnostic`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error("No fue posible enviar diagnóstico");
+  return response.json() as Promise<any>;
+}
+
+export async function getDiagnostic(workOrderId: string, token?: string) {
+  const response = await requestWithLocalFallback(`/workflow/${workOrderId}/diagnostic`, {
+    headers: authHeaders(token)
+  });
+  if (!response.ok) throw new Error("No fue posible obtener diagnóstico");
+  return response.json() as Promise<any>;
+}
+
+// ========== QUOTATION WORKFLOW ==========
+export async function submitQuotation(
+  workOrderId: string,
+  input: { workerId: string; laborCost: number; materialsCost: number; items: any[] },
+  token?: string
+) {
+  const response = await requestWithLocalFallback(`/workflow/${workOrderId}/quotation`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error("No fue posible enviar cotización");
+  return response.json() as Promise<any>;
+}
+
+export async function getQuotation(workOrderId: string, token?: string) {
+  const response = await requestWithLocalFallback(`/workflow/${workOrderId}/quotation`, {
+    headers: authHeaders(token)
+  });
+  if (!response.ok) throw new Error("No fue posible obtener cotización");
+  return response.json() as Promise<any>;
+}
+
+export async function approveQuotation(workOrderId: string, clientId: string, token?: string) {
+  const response = await requestWithLocalFallback(`/workflow/${workOrderId}/quotation/approve`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ clientId })
+  });
+  if (!response.ok) throw new Error("No fue posible aprobar cotización");
+  return response.json() as Promise<any>;
+}
+
+// ========== WORK NOTES WORKFLOW ==========
+export async function addWorkNote(
+  workOrderId: string,
+  input: { description: string; additionalCost: number; evidencePhotos?: string },
+  token?: string
+) {
+  const response = await requestWithLocalFallback(`/workflow/${workOrderId}/work-notes`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error("No fue posible agregar nota de trabajo");
+  return response.json() as Promise<any>;
+}
+
+export async function approveWorkNote(
+  workOrderId: string,
+  noteIndex: number,
+  clientId: string,
+  token?: string
+) {
+  const response = await requestWithLocalFallback(`/workflow/${workOrderId}/work-notes/${noteIndex}/approve`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ clientId })
+  });
+  if (!response.ok) throw new Error("No fue posible aprobar nota de trabajo");
+  return response.json() as Promise<any>;
+}
+
+export async function rejectWorkNote(
+  workOrderId: string,
+  noteIndex: number,
+  clientId: string,
+  token?: string
+) {
+  const response = await requestWithLocalFallback(`/workflow/${workOrderId}/work-notes/${noteIndex}/reject`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ clientId })
+  });
+  if (!response.ok) throw new Error("No fue posible rechazar nota de trabajo");
+  return response.json() as Promise<any>;
+}
+
+// ========== COMPLETION & RATING WORKFLOW ==========
+export async function completeWork(
+  workOrderId: string,
+  input: { completionPhotos: string[] },
+  token?: string
+) {
+  const response = await requestWithLocalFallback(`/workflow/${workOrderId}/complete`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error("No fue posible completar trabajo");
+  return response.json() as Promise<any>;
+}
+
+export async function submitRating(
+  workOrderId: string,
+  input: { rating: number; review?: string },
+  token?: string
+) {
+  const response = await requestWithLocalFallback(`/workflow/${workOrderId}/rating`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error("No fue posible enviar calificación");
+  return response.json() as Promise<any>;
 }

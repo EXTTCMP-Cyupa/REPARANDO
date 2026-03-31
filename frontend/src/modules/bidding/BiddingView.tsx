@@ -18,6 +18,11 @@ type NeedItem = {
   description: string;
   category: string;
   createdAt: string;
+  status: "OPEN" | "ASSIGNED";
+  selectedBidId?: string | null;
+  selectedWorkerId?: string | null;
+  assignedWorkOrderId?: string | null;
+  assignedAt?: string | null;
 };
 
 export function BiddingView() {
@@ -36,19 +41,23 @@ export function BiddingView() {
   const [bids, setBids] = useState<BidItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const selectedNeed = needs.find((need) => need.id === selectedNeedId) ?? null;
 
   const loadNeeds = async () => {
     if (!session) return;
 
     try {
       const items = await listServiceNeeds(role === "CLIENT" ? session.user.userId : undefined, session.accessToken);
-      setNeeds(items);
+      const ordered = role === "CLIENT"
+        ? [...items].sort((a, b) => (a.status === b.status ? 0 : a.status === "OPEN" ? -1 : 1))
+        : items;
+      setNeeds(ordered);
 
-      if (items.length === 0) {
+      if (ordered.length === 0) {
         setSelectedNeedId(null);
         setBids([]);
-      } else if (!selectedNeedId || !items.some((item) => item.id === selectedNeedId)) {
-        setSelectedNeedId(items[0].id);
+      } else if (!selectedNeedId || !ordered.some((item) => item.id === selectedNeedId)) {
+        setSelectedNeedId(ordered[0].id);
       }
     } catch {
       setNeeds([]);
@@ -158,7 +167,8 @@ export function BiddingView() {
     try {
       setBusy(true);
       await selectNeedBid(selectedNeedId, bidId, session.user.userId, session.accessToken);
-      setMessage("Propuesta seleccionada y lead cobrado.");
+      setMessage("Propuesta seleccionada. El trabajo fue asignado y ya no aparecerá para otros técnicos.");
+      await loadNeeds();
       await loadBidsForNeed(selectedNeedId);
     } catch {
       setMessage("No fue posible seleccionar la propuesta.");
@@ -220,6 +230,9 @@ export function BiddingView() {
               >
                 <p className="font-bold">{need.title}</p>
                 <p className="text-xs">{need.category}</p>
+                <p className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${need.status === "OPEN" ? "bg-emerald-100 text-emerald-700" : "bg-brand-100 text-brand-900"}`}>
+                  {need.status === "OPEN" ? "Abierta" : "Asignada"}
+                </p>
                 <p className="text-xs text-brand-700">#{need.id.slice(0, 8)}</p>
               </button>
             ))}
@@ -239,6 +252,11 @@ export function BiddingView() {
         <article className="mt-4 rounded-xl border border-brand-100 bg-white p-4">
           <p className="font-bold">Enviar propuesta</p>
           <p className="text-sm">Necesidad seleccionada: {selectedNeedId ? `#${selectedNeedId.slice(0, 8)}` : "Ninguna"}</p>
+          {selectedNeed?.status === "ASSIGNED" && (
+            <p className="mt-2 rounded-lg bg-yellow-100 px-3 py-2 text-xs font-semibold text-yellow-800">
+              Esta necesidad ya fue asignada y no acepta nuevas propuestas.
+            </p>
+          )}
           <div className="mt-3 space-y-2 text-sm">
             <input
               value={costInput}
@@ -255,7 +273,7 @@ export function BiddingView() {
           </div>
           <button
             onClick={onSubmitBid}
-            disabled={busy || !selectedNeedId}
+            disabled={busy || !selectedNeedId || selectedNeed?.status !== "OPEN"}
             className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             Enviar propuesta
@@ -272,7 +290,7 @@ export function BiddingView() {
             <p>Worker: {bid.workerId}</p>
             <p>Costo: ${Number(bid.laborCost).toFixed(2)}</p>
             <p>Resumen: {bid.summary}</p>
-            {role === "CLIENT" && (
+            {role === "CLIENT" && selectedNeed?.status === "OPEN" && (
               <button
                 onClick={() => onSelectBid(bid.id)}
                 disabled={busy}
@@ -280,6 +298,9 @@ export function BiddingView() {
               >
                 Seleccionar propuesta
               </button>
+            )}
+            {role === "CLIENT" && selectedNeed?.status === "ASSIGNED" && selectedNeed.selectedBidId === bid.id && (
+              <p className="mt-2 inline-block rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700">Propuesta asignada</p>
             )}
           </article>
         ))}

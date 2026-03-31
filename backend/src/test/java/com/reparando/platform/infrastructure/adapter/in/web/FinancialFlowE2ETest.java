@@ -72,6 +72,7 @@ class FinancialFlowE2ETest {
             {
               "workerId": "11111111-1111-1111-1111-111111111111",
               "amount": 2.00,
+                            "paymentMethod": "TRANSFERENCIA",
               "imagePath": "uploads/e2e-deposit.jpg"
             }
             """;
@@ -88,6 +89,7 @@ class FinancialFlowE2ETest {
 
         assertThat(createdDeposit).isNotNull();
         assertThat(createdDeposit.status()).isEqualTo("PENDING");
+        assertThat(createdDeposit.paymentMethod()).isEqualTo("TRANSFERENCIA");
 
         List<DepositReceiptResponse> pending = webTestClient.get()
             .uri("/api/v1/finance/deposit/pending")
@@ -100,6 +102,25 @@ class FinancialFlowE2ETest {
 
         assertThat(pending).isNotNull();
         assertThat(pending).extracting(DepositReceiptResponse::id).contains(createdDeposit.id());
+        assertThat(pending)
+            .filteredOn(deposit -> deposit.id().equals(createdDeposit.id()))
+            .extracting(DepositReceiptResponse::paymentMethod)
+            .contains("TRANSFERENCIA");
+
+        List<DepositReceiptResponse> workerDeposits = webTestClient.get()
+            .uri("/api/v1/finance/workers/{workerId}/deposits", WORKER_ID)
+            .header("Authorization", workerToken)
+            .exchange()
+            .expectStatus().isOk()
+            .expectBodyList(DepositReceiptResponse.class)
+            .returnResult()
+            .getResponseBody();
+
+        assertThat(workerDeposits).isNotNull();
+        assertThat(workerDeposits)
+            .filteredOn(deposit -> deposit.id().equals(createdDeposit.id()))
+            .extracting(DepositReceiptResponse::paymentMethod)
+            .contains("TRANSFERENCIA");
 
         String approveBody = """
             {
@@ -218,6 +239,7 @@ class FinancialFlowE2ETest {
         UUID id,
         UUID workerId,
         BigDecimal amount,
+        String paymentMethod,
         String imagePath,
         String status,
         String createdAt,

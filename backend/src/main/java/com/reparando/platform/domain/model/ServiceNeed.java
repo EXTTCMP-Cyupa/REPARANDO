@@ -9,6 +9,11 @@ public record ServiceNeed(
     String title,
     String description,
     String category,
-    OffsetDateTime createdAt
+    OffsetDateTime createdAt,
+    ServiceNeedStatus status,
+    UUID selectedBidId,
+    UUID selectedWorkerId,
+    UUID assignedWorkOrderId,
+    OffsetDateTime assignedAt
 ) {
 }

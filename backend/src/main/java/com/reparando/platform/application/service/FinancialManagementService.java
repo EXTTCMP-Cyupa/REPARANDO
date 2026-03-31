@@ -3,6 +3,7 @@ package com.reparando.platform.application.service;
 import com.reparando.platform.domain.model.DepositReceipt;
 import com.reparando.platform.domain.model.DepositStatus;
 import com.reparando.platform.domain.model.LeadCharge;
+import com.reparando.platform.domain.model.PaymentMethod;
 import com.reparando.platform.domain.model.WorkerAccount;
 import com.reparando.platform.domain.port.in.FinancialManagementUseCase;
 import com.reparando.platform.domain.port.out.BusinessPolicyRepositoryPort;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -73,17 +75,32 @@ public class FinancialManagementService implements FinancialManagementUseCase {
     }
 
     @Override
-    public Mono<DepositReceipt> submitDepositReceipt(UUID workerId, java.math.BigDecimal amount, String imagePath) {
-        DepositReceipt receipt = new DepositReceipt(
-            UUID.randomUUID(),
-            workerId,
-            amount,
-            imagePath,
-            DepositStatus.PENDING,
-            OffsetDateTime.now(),
-            null
-        );
-        return depositReceiptRepository.save(receipt);
+    public Mono<DepositReceipt> submitDepositReceipt(UUID workerId, BigDecimal amount, PaymentMethod paymentMethod, String imagePath) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return Mono.error(new IllegalArgumentException("Deposit amount must be greater than zero"));
+        }
+        if (paymentMethod == null) {
+            return Mono.error(new IllegalArgumentException("Payment method is required"));
+        }
+        if (imagePath == null || imagePath.isBlank()) {
+            return Mono.error(new IllegalArgumentException("Deposit image path is required"));
+        }
+
+        return workerAccountRepository.findWorkerById(workerId)
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("Worker not found")))
+            .flatMap(worker -> {
+                DepositReceipt receipt = new DepositReceipt(
+                    UUID.randomUUID(),
+                    workerId,
+                    amount,
+                    paymentMethod,
+                    imagePath.trim(),
+                    DepositStatus.PENDING,
+                    OffsetDateTime.now(),
+                    null
+                );
+                return depositReceiptRepository.save(receipt);
+            });
     }
 
     @Override
@@ -126,5 +143,12 @@ public class FinancialManagementService implements FinancialManagementUseCase {
     @Override
     public Flux<DepositReceipt> listPendingDeposits() {
         return depositReceiptRepository.findPending();
+    }
+
+    @Override
+    public Flux<DepositReceipt> listWorkerDeposits(UUID workerId) {
+        return workerAccountRepository.findWorkerById(workerId)
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("Worker not found")))
+            .thenMany(depositReceiptRepository.findByWorkerId(workerId));
     }
 }

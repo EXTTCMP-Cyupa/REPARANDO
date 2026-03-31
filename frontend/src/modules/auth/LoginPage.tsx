@@ -5,6 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 const EMAIL_BY_ROLE = {
   ADMIN: "admin@reparando.app",
   WORKER: "worker@reparando.app",
+  WORKER_PRO: "worker2@reparando.app",
   CLIENT: "client@reparando.app"
 } as const;
 
@@ -49,6 +50,7 @@ export function LoginPage() {
         >
           <option value={EMAIL_BY_ROLE.CLIENT}>Cliente</option>
           <option value={EMAIL_BY_ROLE.WORKER}>Trabajador</option>
+          <option value={EMAIL_BY_ROLE.WORKER_PRO}>Trabajador Pro</option>
           <option value={EMAIL_BY_ROLE.ADMIN}>Administrador</option>
         </select>
 

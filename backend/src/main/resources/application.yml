@@ -25,6 +25,12 @@ app:
     lead-cost: 1.50
     trust-credit-limit: -3.00
     storage-path: uploads
+  storage:
+    provider: ${STORAGE_PROVIDER:local}
+    cloudinary:
+      cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+      api-key: ${CLOUDINARY_API_KEY:}
+      api-secret: ${CLOUDINARY_API_SECRET:}
 
 logging:
   level:

@@ -11,4 +11,7 @@ public interface DepositReceiptR2dbcRepository extends ReactiveCrudRepository<De
 
     @Query("SELECT * FROM deposit_receipt WHERE status = 'PENDING' ORDER BY created_at DESC")
     Flux<DepositReceiptEntity> findPending();
+
+    @Query("SELECT * FROM deposit_receipt WHERE worker_id = :workerId ORDER BY created_at DESC")
+    Flux<DepositReceiptEntity> findByWorkerIdOrderByCreatedAtDesc(UUID workerId);
 }

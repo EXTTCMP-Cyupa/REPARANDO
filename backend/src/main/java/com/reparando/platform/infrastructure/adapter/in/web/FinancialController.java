@@ -1,6 +1,7 @@
 package com.reparando.platform.infrastructure.adapter.in.web;
 
 import com.reparando.platform.domain.model.DepositReceipt;
+import com.reparando.platform.domain.model.PaymentMethod;
 import com.reparando.platform.domain.model.WorkerAccount;
 import com.reparando.platform.domain.port.in.FinancialManagementUseCase;
 import com.reparando.platform.domain.port.out.ImageStoragePort;
@@ -45,7 +46,12 @@ public class FinancialController {
     @PostMapping("/deposit")
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<DepositReceipt> submitDeposit(@RequestBody DepositRequest request) {
-        return financialManagementUseCase.submitDepositReceipt(request.workerId(), request.amount(), request.imagePath());
+        return financialManagementUseCase.submitDepositReceipt(
+            request.workerId(),
+            request.amount(),
+            request.paymentMethod(),
+            request.imagePath()
+        );
     }
 
     @PostMapping("/deposit/{depositId}/approve")
@@ -64,6 +70,12 @@ public class FinancialController {
     @ResponseStatus(HttpStatus.OK)
     public Flux<DepositReceipt> listPendingDeposits() {
         return financialManagementUseCase.listPendingDeposits();
+    }
+
+    @GetMapping("/workers/{workerId}/deposits")
+    @ResponseStatus(HttpStatus.OK)
+    public Flux<DepositReceipt> listWorkerDeposits(@PathVariable UUID workerId) {
+        return financialManagementUseCase.listWorkerDeposits(workerId);
     }
 
     @PostMapping("/deposit/upload")
@@ -95,6 +107,7 @@ public class FinancialController {
     public record DepositRequest(
         @NotNull UUID workerId,
         @NotNull @DecimalMin(value = "0.01") BigDecimal amount,
+        @NotNull PaymentMethod paymentMethod,
         @NotBlank String imagePath
     ) {
     }

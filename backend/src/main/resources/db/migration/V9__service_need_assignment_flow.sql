@@ -1,0 +1,10 @@
+ALTER TABLE service_need
+ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
+ADD COLUMN IF NOT EXISTS selected_bid_id UUID,
+ADD COLUMN IF NOT EXISTS selected_worker_id UUID,
+ADD COLUMN IF NOT EXISTS assigned_work_order_id UUID,
+ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ;
+
+UPDATE service_need
+SET status = 'OPEN'
+WHERE status IS NULL;

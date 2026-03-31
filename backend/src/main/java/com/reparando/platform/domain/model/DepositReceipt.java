@@ -8,6 +8,7 @@ public record DepositReceipt(
     UUID id,
     UUID workerId,
     BigDecimal amount,
+    PaymentMethod paymentMethod,
     String imagePath,
     DepositStatus status,
     OffsetDateTime createdAt,
@@ -15,10 +16,10 @@ public record DepositReceipt(
 ) {
 
     public DepositReceipt approve(UUID adminId) {
-        return new DepositReceipt(id, workerId, amount, imagePath, DepositStatus.APPROVED, createdAt, adminId);
+        return new DepositReceipt(id, workerId, amount, paymentMethod, imagePath, DepositStatus.APPROVED, createdAt, adminId);
     }
 
     public DepositReceipt reject(UUID adminId) {
-        return new DepositReceipt(id, workerId, amount, imagePath, DepositStatus.REJECTED, createdAt, adminId);
+        return new DepositReceipt(id, workerId, amount, paymentMethod, imagePath, DepositStatus.REJECTED, createdAt, adminId);
     }
 }

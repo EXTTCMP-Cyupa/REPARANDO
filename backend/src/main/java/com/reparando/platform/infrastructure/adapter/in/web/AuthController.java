@@ -27,11 +27,13 @@ public class AuthController {
         Map<String, String> users = Map.of(
             "admin@reparando.app", "ADMIN",
             "worker@reparando.app", "WORKER",
+            "worker2@reparando.app", "WORKER",
             "client@reparando.app", "CLIENT"
         );
         Map<String, UUID> userIds = Map.of(
             "admin@reparando.app", UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
             "worker@reparando.app", UUID.fromString("11111111-1111-1111-1111-111111111111"),
+            "worker2@reparando.app", UUID.fromString("44444444-4444-4444-4444-444444444444"),
             "client@reparando.app", UUID.fromString("33333333-3333-3333-3333-333333333333")
         );
 

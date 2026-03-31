@@ -10,4 +10,5 @@ public interface DepositReceiptRepositoryPort {
     Mono<DepositReceipt> save(DepositReceipt receipt);
     Mono<DepositReceipt> findById(UUID id);
     Flux<DepositReceipt> findPending();
+    Flux<DepositReceipt> findByWorkerId(UUID workerId);
 }

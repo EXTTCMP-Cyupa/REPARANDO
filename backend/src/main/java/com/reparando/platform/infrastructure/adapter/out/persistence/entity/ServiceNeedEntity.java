@@ -13,6 +13,11 @@ public record ServiceNeedEntity(
     String title,
     String description,
     String category,
-    OffsetDateTime createdAt
+    OffsetDateTime createdAt,
+    String status,
+    UUID selectedBidId,
+    UUID selectedWorkerId,
+    UUID assignedWorkOrderId,
+    OffsetDateTime assignedAt
 ) {
 }

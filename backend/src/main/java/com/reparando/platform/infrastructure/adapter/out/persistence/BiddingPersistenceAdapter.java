@@ -2,6 +2,7 @@ package com.reparando.platform.infrastructure.adapter.out.persistence;
 
 import com.reparando.platform.domain.model.BidProposal;
 import com.reparando.platform.domain.model.ServiceNeed;
+import com.reparando.platform.domain.model.ServiceNeedStatus;
 import com.reparando.platform.domain.port.out.BidProposalRepositoryPort;
 import com.reparando.platform.domain.port.out.ServiceNeedRepositoryPort;
 import com.reparando.platform.infrastructure.adapter.out.persistence.entity.BidProposalEntity;
@@ -9,10 +10,12 @@ import com.reparando.platform.infrastructure.adapter.out.persistence.entity.Serv
 import com.reparando.platform.infrastructure.adapter.out.persistence.repository.BidProposalR2dbcRepository;
 import com.reparando.platform.infrastructure.adapter.out.persistence.repository.ServiceNeedR2dbcRepository;
 import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.r2dbc.core.DatabaseClient.GenericExecuteSpec;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Component
@@ -34,15 +37,20 @@ public class BiddingPersistenceAdapter implements ServiceNeedRepositoryPort, Bid
 
     @Override
     public Mono<ServiceNeed> save(ServiceNeed need) {
-        return databaseClient.sql("""
-                INSERT INTO service_need(id, client_id, title, description, category, created_at)
-                VALUES (:id, :clientId, :title, :description, :category, :createdAt)
+        GenericExecuteSpec spec = databaseClient.sql("""
+                INSERT INTO service_need(id, client_id, title, description, category, created_at, status, selected_bid_id, selected_worker_id, assigned_work_order_id, assigned_at)
+                VALUES (:id, :clientId, :title, :description, :category, :createdAt, :status, :selectedBidId, :selectedWorkerId, :assignedWorkOrderId, :assignedAt)
                 ON CONFLICT (id) DO UPDATE
                 SET client_id = EXCLUDED.client_id,
                     title = EXCLUDED.title,
                     description = EXCLUDED.description,
                     category = EXCLUDED.category,
-                    created_at = EXCLUDED.created_at
+                    created_at = EXCLUDED.created_at,
+                    status = EXCLUDED.status,
+                    selected_bid_id = EXCLUDED.selected_bid_id,
+                    selected_worker_id = EXCLUDED.selected_worker_id,
+                    assigned_work_order_id = EXCLUDED.assigned_work_order_id,
+                    assigned_at = EXCLUDED.assigned_at
                 """)
             .bind("id", need.id())
             .bind("clientId", need.clientId())
@@ -50,7 +58,14 @@ public class BiddingPersistenceAdapter implements ServiceNeedRepositoryPort, Bid
             .bind("description", need.description())
             .bind("category", need.category())
             .bind("createdAt", need.createdAt())
-            .fetch()
+            .bind("status", need.status().name());
+
+        spec = need.selectedBidId() == null ? spec.bindNull("selectedBidId", UUID.class) : spec.bind("selectedBidId", need.selectedBidId());
+        spec = need.selectedWorkerId() == null ? spec.bindNull("selectedWorkerId", UUID.class) : spec.bind("selectedWorkerId", need.selectedWorkerId());
+        spec = need.assignedWorkOrderId() == null ? spec.bindNull("assignedWorkOrderId", UUID.class) : spec.bind("assignedWorkOrderId", need.assignedWorkOrderId());
+        spec = need.assignedAt() == null ? spec.bindNull("assignedAt", OffsetDateTime.class) : spec.bind("assignedAt", need.assignedAt());
+
+        return spec.fetch()
             .rowsUpdated()
             .thenReturn(need);
     }
@@ -63,6 +78,11 @@ public class BiddingPersistenceAdapter implements ServiceNeedRepositoryPort, Bid
     @Override
     public Flux<ServiceNeed> findAll() {
         return serviceNeedRepository.findAllByOrderByCreatedAtDesc().map(this::toDomain);
+    }
+
+    @Override
+    public Flux<ServiceNeed> findByStatus(ServiceNeedStatus status) {
+        return serviceNeedRepository.findByStatusOrderByCreatedAtDesc(status.name()).map(this::toDomain);
     }
 
     @Override
@@ -110,7 +130,12 @@ public class BiddingPersistenceAdapter implements ServiceNeedRepositoryPort, Bid
             entity.title(),
             entity.description(),
             entity.category(),
-            entity.createdAt()
+            entity.createdAt(),
+            entity.status() == null ? ServiceNeedStatus.OPEN : ServiceNeedStatus.valueOf(entity.status()),
+            entity.selectedBidId(),
+            entity.selectedWorkerId(),
+            entity.assignedWorkOrderId(),
+            entity.assignedAt()
         );
     }
 

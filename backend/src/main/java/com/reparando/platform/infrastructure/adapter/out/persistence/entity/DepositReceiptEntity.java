@@ -12,6 +12,7 @@ public record DepositReceiptEntity(
     @Id UUID id,
     UUID workerId,
     BigDecimal amount,
+    String paymentMethod,
     String imagePath,
     String status,
     OffsetDateTime createdAt,

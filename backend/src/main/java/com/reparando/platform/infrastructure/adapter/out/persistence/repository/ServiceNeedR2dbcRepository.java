@@ -8,5 +8,6 @@ import java.util.UUID;
 
 public interface ServiceNeedR2dbcRepository extends ReactiveCrudRepository<ServiceNeedEntity, UUID> {
 	Flux<ServiceNeedEntity> findAllByOrderByCreatedAtDesc();
+	Flux<ServiceNeedEntity> findByStatusOrderByCreatedAtDesc(String status);
 	Flux<ServiceNeedEntity> findByClientIdOrderByCreatedAtDesc(UUID clientId);
 }
