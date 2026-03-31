@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Gavel, HardHat, Home, LogOut, ShieldCheck, Store, Wrench } from "lucide-react";
+import { CircleDollarSign, ClipboardList, Gavel, HardHat, Home, LogOut, ShieldCheck, Store, Wrench } from "lucide-react";
 import type { PropsWithChildren } from "react";
 import { useAuth } from "../context/AuthContext";
 import type { UserRole } from "../lib/auth";
@@ -8,6 +8,8 @@ const nav = [
   { to: "/marketplace", label: "Marketplace", icon: Store, roles: ["CLIENT", "WORKER"] as UserRole[] },
   { to: "/bidding", label: "Licitación", icon: Gavel, roles: ["CLIENT", "WORKER"] as UserRole[] },
   { to: "/worker", label: "Trabajador", icon: HardHat, roles: ["WORKER"] as UserRole[] },
+  { to: "/worker/jobs", label: "Todos los trabajos", icon: ClipboardList, roles: ["WORKER"] as UserRole[] },
+  { to: "/worker/finance", label: "Finanzas", icon: CircleDollarSign, roles: ["WORKER"] as UserRole[] },
   { to: "/client", label: "Cliente", icon: Wrench, roles: ["CLIENT"] as UserRole[] },
   { to: "/admin", label: "Admin", icon: ShieldCheck, roles: ["ADMIN"] as UserRole[] }
 ];

@@ -1,14 +1,11 @@
-import { AlertTriangle, CircleDollarSign, Home, MapPin, ShieldAlert, UserRound, Wrench } from "lucide-react";
-import { type ChangeEvent, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Home, MapPin, ShieldAlert, UserRound, Wrench } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
   getBusinessPolicy,
   getWorkerAccount,
-  getWorkerDeposits,
   getWorkerWorkOrders,
   listServiceNeeds,
-  submitBidProposal,
-  submitDepositReceipt,
-  uploadDepositReceiptImage
+  submitBidProposal
 } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { DiagnosticView } from "./DiagnosticView";
@@ -27,6 +24,13 @@ type WorkerWorkOrder = {
   quotationMaterialsCost?: number | null;
   clientApprovalDate?: string | null;
   completedAt?: string | null;
+  workNotes?: Array<{
+    description: string;
+    additionalCost: number;
+    evidencePhotos: string;
+    createdAt: string;
+    clientApproved: boolean | null;
+  }>;
 };
 
 type ServiceNeedItem = {
@@ -96,22 +100,9 @@ export function WorkerDashboard() {
   const [postingNeedId, setPostingNeedId] = useState<string | null>(null);
   const [costByNeed, setCostByNeed] = useState<Record<string, string>>({});
   const [summaryByNeed, setSummaryByNeed] = useState<Record<string, string>>({});
-
-  const [depositAmount, setDepositAmount] = useState("");
-  const [depositPaymentMethod, setDepositPaymentMethod] = useState<"DEPOSITO" | "TRANSFERENCIA">("DEPOSITO");
-  const [depositImagePath, setDepositImagePath] = useState<string | null>(null);
-  const [depositBusy, setDepositBusy] = useState(false);
-  const [depositMessage, setDepositMessage] = useState<string | null>(null);
-  const [workerDeposits, setWorkerDeposits] = useState<
-    Array<{
-      id: string;
-      amount: number;
-      paymentMethod: "DEPOSITO" | "TRANSFERENCIA";
-      imagePath: string;
-      status: "APPROVED" | "PENDING" | "REJECTED";
-      createdAt: string;
-    }>
-  >([]);
+  const [bidStatusByNeed, setBidStatusByNeed] = useState<
+    Record<string, { tone: "pending" | "error"; message: string }>
+  >({});
 
   const refreshAccount = async () => {
     if (!session) return;
@@ -137,11 +128,12 @@ export function WorkerDashboard() {
       .then((items) => {
         const typed = items as WorkerWorkOrder[];
         setOrders(typed);
+        const nonFinalized = typed.filter((item) => item.status !== "FINALIZADO");
         setSelectedOrderId((current) => {
-          if (current && typed.some((item) => item.id === current)) {
+          if (current && nonFinalized.some((item) => item.id === current)) {
             return current;
           }
-          return typed[0]?.id ?? null;
+          return nonFinalized[0]?.id ?? null;
         });
       })
       .catch(() => {
@@ -157,94 +149,33 @@ export function WorkerDashboard() {
     setNeedsLoading(true);
 
     listServiceNeeds(undefined, session.accessToken)
-      .then((items) => setNeeds((items as ServiceNeedItem[]).filter((need) => need.status === "OPEN")))
+      .then((items) => {
+        const openNeeds = (items as ServiceNeedItem[]).filter((need) => need.status === "OPEN");
+        setNeeds(openNeeds);
+        setBidStatusByNeed((current) => {
+          const next: Record<string, { tone: "pending" | "error"; message: string }> = {};
+          for (const need of openNeeds) {
+            if (current[need.id]) {
+              next[need.id] = current[need.id];
+            }
+          }
+          return next;
+        });
+      })
       .catch(() => {
         setNeeds([]);
       })
       .finally(() => setNeedsLoading(false));
   };
 
-  const refreshDeposits = () => {
-    if (!session) return;
-
-    getWorkerDeposits(session.user.userId, session.accessToken)
-      .then((items) => {
-        setWorkerDeposits(
-          items.map((item) => ({
-            id: item.id,
-            amount: Number(item.amount),
-            paymentMethod: item.paymentMethod,
-            imagePath: item.imagePath,
-            status: item.status,
-            createdAt: item.createdAt
-          }))
-        );
-      })
-      .catch(() => {
-        setWorkerDeposits([]);
-      });
-  };
-
-  const onUploadDepositImage = async (event: ChangeEvent<HTMLInputElement>) => {
-    if (!session || !event.target.files?.[0]) return;
-
-    try {
-      setDepositBusy(true);
-      setDepositMessage(null);
-      const result = await uploadDepositReceiptImage(event.target.files[0], session.accessToken);
-      setDepositImagePath(result.imagePath);
-      setDepositMessage("Comprobante cargado correctamente.");
-    } catch {
-      setDepositImagePath(null);
-      setDepositMessage("No fue posible subir el comprobante.");
-    } finally {
-      setDepositBusy(false);
-      event.target.value = "";
-    }
-  };
-
-  const onSubmitDeposit = async () => {
-    if (!session) return;
-
-    const amount = Number(depositAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setDepositMessage("Ingresa un monto válido mayor a cero.");
-      return;
-    }
-
-    if (!depositImagePath) {
-      setDepositMessage("Debes subir el comprobante del depósito.");
-      return;
-    }
-
-    try {
-      setDepositBusy(true);
-      setDepositMessage(null);
-      await submitDepositReceipt(
-        {
-          workerId: session.user.userId,
-          amount,
-          paymentMethod: depositPaymentMethod,
-          imagePath: depositImagePath
-        },
-        session.accessToken
-      );
-
-      setDepositAmount("");
-      setDepositPaymentMethod("DEPOSITO");
-      setDepositImagePath(null);
-      setDepositMessage("Depósito enviado para validación administrativa.");
-      refreshAccount();
-      refreshDeposits();
-    } catch {
-      setDepositMessage("No fue posible registrar el depósito.");
-    } finally {
-      setDepositBusy(false);
-    }
-  };
-
   const onApplyNeed = async (need: ServiceNeedItem) => {
     if (!session) return;
+
+    const existingStatus = bidStatusByNeed[need.id];
+    if (existingStatus?.tone === "pending") {
+      setNeedActionMessage("Ya te postulaste a esta oferta. Está pendiente de aceptación del cliente.");
+      return;
+    }
 
     const laborCost = Number(costByNeed[need.id] ?? "");
     const summary = (summaryByNeed[need.id] ?? "").trim();
@@ -273,14 +204,35 @@ export function WorkerDashboard() {
       );
 
       setNeedActionMessage("Postulación enviada correctamente.");
+      setBidStatusByNeed((current) => ({
+        ...current,
+        [need.id]: {
+          tone: "pending",
+          message: "Postulación enviada · Pendiente de aceptación"
+        }
+      }));
       setCostByNeed((current) => ({ ...current, [need.id]: "" }));
       setSummaryByNeed((current) => ({ ...current, [need.id]: "" }));
       refreshNeeds();
     } catch (error) {
       if (error instanceof Error) {
         setNeedActionMessage(error.message);
+        setBidStatusByNeed((current) => ({
+          ...current,
+          [need.id]: {
+            tone: "error",
+            message: error.message
+          }
+        }));
       } else {
         setNeedActionMessage("No fue posible postular al trabajo.");
+        setBidStatusByNeed((current) => ({
+          ...current,
+          [need.id]: {
+            tone: "error",
+            message: "No fue posible enviar la postulación"
+          }
+        }));
       }
     } finally {
       setPostingNeedId(null);
@@ -302,13 +254,11 @@ export function WorkerDashboard() {
     refreshAccount();
     refreshOrders();
     refreshNeeds();
-    refreshDeposits();
 
     const interval = window.setInterval(() => {
       refreshAccount();
       refreshOrders();
       refreshNeeds();
-      refreshDeposits();
     }, 9000);
 
     return () => window.clearInterval(interval);
@@ -316,17 +266,19 @@ export function WorkerDashboard() {
 
   const selectedOrder = useMemo(() => orders.find((order) => order.id === selectedOrderId) ?? null, [orders, selectedOrderId]);
   const activeOrders = useMemo(() => orders.filter((order) => order.status !== "FINALIZADO"), [orders]);
+  const visibleOrders = useMemo(() => orders.filter((order) => order.status !== "FINALIZADO"), [orders]);
+  const pendingApplications = useMemo(
+    () => Object.values(bidStatusByNeed).filter((status) => status.tone === "pending").length,
+    [bidStatusByNeed]
+  );
 
-  const canApplyJobs =
-    blocked === false &&
-    balance !== null &&
-    balance >= policy.trustCreditLimit;
-
+  const canApplyJobs = blocked === false && balance !== null && balance >= policy.trustCreditLimit;
   const isNegativeBalance = balance !== null && balance < 0;
 
   const canDiagnostic = selectedOrder?.status === "DIAGNOSTICO" && !selectedOrder.quotationLaborCost;
   const canQuotation = selectedOrder?.status === "DIAGNOSTICO" && !selectedOrder.quotationLaborCost;
-  const waitingQuotationApproval = selectedOrder?.status === "COTIZADO" || (selectedOrder?.status === "DIAGNOSTICO" && !!selectedOrder?.quotationLaborCost);
+  const waitingQuotationApproval =
+    selectedOrder?.status === "COTIZADO" || (selectedOrder?.status === "DIAGNOSTICO" && !!selectedOrder?.quotationLaborCost);
   const canWorkNote = selectedOrder?.status === "EN_PROCESO";
   const canComplete = selectedOrder?.status === "EN_PROCESO";
 
@@ -375,44 +327,6 @@ export function WorkerDashboard() {
         {accountError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{accountError}</p>}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-3">
-          <p className="text-sm font-bold text-slate-900">Subir Comprobante Depósito</p>
-          <div className="mt-2 grid gap-2">
-            <input
-              value={depositAmount}
-              onChange={(event) => setDepositAmount(event.target.value)}
-              type="number"
-              min="0.01"
-              step="0.01"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Monto del depósito"
-            />
-            <select
-              value={depositPaymentMethod}
-              onChange={(event) => setDepositPaymentMethod(event.target.value as "DEPOSITO" | "TRANSFERENCIA")}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="DEPOSITO">Depósito</option>
-              <option value="TRANSFERENCIA">Transferencia</option>
-            </select>
-            <label className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-brand-100 px-3 py-2 text-sm font-bold text-brand-900 hover:bg-brand-200">
-              Subir comprobante
-              <input type="file" accept="image/*" onChange={onUploadDepositImage} className="hidden" disabled={depositBusy} />
-            </label>
-            <button
-              onClick={onSubmitDeposit}
-              disabled={depositBusy || !depositImagePath}
-              className="rounded-lg bg-brand-900 px-3 py-2 text-sm font-bold text-white disabled:opacity-60"
-            >
-              {depositBusy ? "Enviando..." : "Enviar depósito"}
-            </button>
-          </div>
-          {depositMessage && <p className="mt-2 text-xs font-semibold text-slate-700">{depositMessage}</p>}
-          {workerDeposits.length > 0 && (
-            <p className="mt-2 text-xs text-slate-500">Último depósito: ${workerDeposits[0].amount.toFixed(2)} ({workerDeposits[0].status})</p>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-3">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-sm font-bold text-slate-900">Muro de Ofertas (Licitación)</p>
             <button
@@ -431,12 +345,33 @@ export function WorkerDashboard() {
             </p>
           )}
 
+          <div className="mb-2 grid grid-cols-2 gap-2 text-xs">
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 font-semibold text-slate-700">
+              Ofertas abiertas: {needs.length}
+            </p>
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-800">
+              Postulaciones pendientes: {pendingApplications}
+            </p>
+          </div>
+
           <div className="max-h-[360px] space-y-2 overflow-auto pr-1">
             {needs.length === 0 ? (
               <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">No hay ofertas abiertas por ahora.</p>
             ) : (
               needs.slice(0, 8).map((need) => (
                 <article key={need.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  {bidStatusByNeed[need.id] && (
+                    <p
+                      className={
+                        "mb-2 rounded-lg px-2 py-1 text-xs font-semibold " +
+                        (bidStatusByNeed[need.id].tone === "pending"
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-red-100 text-red-700")
+                      }
+                    >
+                      {bidStatusByNeed[need.id].message}
+                    </p>
+                  )}
                   <p className="font-bold text-slate-900">{need.title || "Trabajo disponible"}</p>
                   <p className="text-xs text-slate-600">{need.description}</p>
                   <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-500">
@@ -447,21 +382,27 @@ export function WorkerDashboard() {
                     <input
                       value={costByNeed[need.id] ?? ""}
                       onChange={(event) => setCostByNeed((current) => ({ ...current, [need.id]: event.target.value }))}
+                      disabled={bidStatusByNeed[need.id]?.tone === "pending"}
                       className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
                       placeholder="Cuánto cobrarías"
                     />
                     <input
                       value={summaryByNeed[need.id] ?? ""}
                       onChange={(event) => setSummaryByNeed((current) => ({ ...current, [need.id]: event.target.value }))}
+                      disabled={bidStatusByNeed[need.id]?.tone === "pending"}
                       className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
                       placeholder="Resumen de propuesta"
                     />
                     <button
                       onClick={() => onApplyNeed(need)}
-                      disabled={!canApplyJobs || postingNeedId === need.id}
+                      disabled={!canApplyJobs || postingNeedId === need.id || bidStatusByNeed[need.id]?.tone === "pending"}
                       className="rounded-lg bg-brand-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
                     >
-                      {postingNeedId === need.id ? "Postulando..." : "Postular"}
+                      {postingNeedId === need.id
+                        ? "Postulando..."
+                        : bidStatusByNeed[need.id]?.tone === "pending"
+                          ? "Pendiente de aceptación"
+                          : "Postular"}
                     </button>
                   </div>
                 </article>
@@ -488,10 +429,12 @@ export function WorkerDashboard() {
 
         <div className="grid gap-3 lg:grid-cols-[320px_minmax(0,1fr)]">
           <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-            {orders.length === 0 ? (
-              <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">Aún no tienes órdenes asignadas.</p>
+            {visibleOrders.length === 0 ? (
+              <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                No tienes trabajos pendientes o en proceso. Revisa "Todos los trabajos" para ver finalizados.
+              </p>
             ) : (
-              orders.map((order) => (
+              visibleOrders.map((order) => (
                 <button
                   key={order.id}
                   onClick={() => setSelectedOrderId(order.id)}
@@ -574,6 +517,7 @@ export function WorkerDashboard() {
                   canWorkNote ? (
                     <WorkNoteView
                       workOrderId={selectedOrder.id}
+                      notes={selectedOrder.workNotes ?? []}
                       onSuccess={() => {
                         refreshOrders();
                       }}

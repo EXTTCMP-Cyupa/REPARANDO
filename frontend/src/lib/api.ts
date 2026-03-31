@@ -67,10 +67,19 @@ export async function getWorkerWorkOrders(workerId: string, token?: string) {
     clientId: string;
     workerId: string;
     status: string;
+    description?: string | null;
+    category?: string | null;
     quotationLaborCost?: number | null;
     quotationMaterialsCost?: number | null;
     clientApprovalDate?: string | null;
     completedAt?: string | null;
+    workNotes?: Array<{
+      description: string;
+      additionalCost: number;
+      evidencePhotos: string;
+      createdAt: string;
+      clientApproved: boolean | null;
+    }>;
   }>>;
 }
 
@@ -98,6 +107,9 @@ export async function getClientWorkOrders(clientId: string, token?: string) {
       clientId: string;
       workerId: string;
       status: string;
+      title?: string | null;
+      description?: string | null;
+      category?: string | null;
       quotationLaborCost?: number | null;
       quotationMaterialsCost?: number | null;
       clientApprovalDate?: string | null;

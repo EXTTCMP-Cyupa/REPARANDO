@@ -3,6 +3,8 @@ import { ShellLayout } from "./components/ShellLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
 import { WorkerDashboard } from "./modules/worker/WorkerDashboard";
+import { WorkerFinanceView } from "./modules/worker/WorkerFinanceView";
+import { WorkerAllJobsView } from "./modules/worker/WorkerAllJobsView";
 import { ClientDashboard } from "./modules/client/ClientDashboard";
 import { AdminDashboard } from "./modules/admin/AdminDashboard";
 import { MarketplaceView } from "./modules/marketplace/MarketplaceView";
@@ -57,6 +59,8 @@ export default function App() {
 
           <Route element={<ProtectedRoute allowedRoles={["WORKER"]} />}>
             <Route path="/worker" element={<WorkerDashboard />} />
+            <Route path="/worker/jobs" element={<WorkerAllJobsView />} />
+            <Route path="/worker/finance" element={<WorkerFinanceView />} />
           </Route>
 
           <Route element={<ProtectedRoute allowedRoles={["CLIENT"]} />}>

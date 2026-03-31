@@ -200,12 +200,14 @@ public class WorkWorkflowService implements WorkWorkflowUseCase {
             .filter(order -> order.status() == WorkStatus.EN_PROCESO)
             .switchIfEmpty(Mono.error(new IllegalStateException("Work order must be in EN_PROCESO status")))
             .map(order -> {
+                // Notes without extra cost are informative and don't require client approval.
+                Boolean requiresClientApproval = additionalCost.compareTo(BigDecimal.ZERO) > 0 ? null : true;
                 WorkNote note = new WorkNote(
                     description.trim(),
                     additionalCost,
                     evidencePhotos,
                     OffsetDateTime.now(),
-                    null
+                    requiresClientApproval
                 );
                 return order.addWorkNote(note);
             })
