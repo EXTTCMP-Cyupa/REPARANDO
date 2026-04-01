@@ -480,6 +480,65 @@ export async function getWorkerDeposits(workerId: string, token?: string) {
   >;
 }
 
+export async function getWorkerLedger(workerId: string, token?: string) {
+  const response = await requestWithLocalFallback(`/finance/workers/${workerId}/ledger`, {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw new Error("No fue posible cargar movimientos del ledger");
+  }
+
+  return response.json() as Promise<
+    Array<{
+      id: string;
+      workerId: string;
+      entryType: "LEAD_CHARGE" | "DEPOSIT_APPROVED" | "REFUND" | "ADJUSTMENT_CREDIT" | "ADJUSTMENT_DEBIT";
+      amount: number;
+      description: string;
+      referenceEntryId?: string | null;
+      externalReference?: string | null;
+      createdAt: string;
+      createdBy: string;
+    }>
+  >;
+}
+
+export async function createLedgerAdjustment(
+  input: { workerId: string; amount: number; reason: string; adminId?: string },
+  token?: string
+) {
+  const response = await requestWithLocalFallback("/finance/ledger/adjustments", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(input)
+  });
+
+  if (!response.ok) {
+    throw new Error("No fue posible crear el ajuste");
+  }
+
+  return response.json() as Promise<any>;
+}
+
+export async function refundLedgerEntry(
+  entryId: string,
+  input: { reason?: string; adminId?: string },
+  token?: string
+) {
+  const response = await requestWithLocalFallback(`/finance/ledger/${entryId}/refund`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(input)
+  });
+
+  if (!response.ok) {
+    throw new Error("No fue posible emitir el refund");
+  }
+
+  return response.json() as Promise<any>;
+}
+
 // ========== IMAGE UPLOAD ==========
 export async function uploadImage(file: File, token?: string): Promise<{ url: string }> {
   const formData = new FormData();

@@ -2,12 +2,15 @@ package com.reparando.platform.application.service;
 
 import com.reparando.platform.domain.model.DepositReceipt;
 import com.reparando.platform.domain.model.DepositStatus;
+import com.reparando.platform.domain.model.LedgerEntry;
+import com.reparando.platform.domain.model.LedgerEntryType;
 import com.reparando.platform.domain.model.LeadCharge;
 import com.reparando.platform.domain.model.PaymentMethod;
 import com.reparando.platform.domain.model.WorkerAccount;
 import com.reparando.platform.domain.port.in.FinancialManagementUseCase;
 import com.reparando.platform.domain.port.out.BusinessPolicyRepositoryPort;
 import com.reparando.platform.domain.port.out.DepositReceiptRepositoryPort;
+import com.reparando.platform.domain.port.out.LedgerEntryRepositoryPort;
 import com.reparando.platform.domain.port.out.LeadChargeRepositoryPort;
 import com.reparando.platform.domain.port.out.WorkerAccountRepositoryPort;
 import org.springframework.stereotype.Service;
@@ -24,17 +27,20 @@ public class FinancialManagementService implements FinancialManagementUseCase {
     private final WorkerAccountRepositoryPort workerAccountRepository;
     private final LeadChargeRepositoryPort leadChargeRepository;
     private final DepositReceiptRepositoryPort depositReceiptRepository;
+    private final LedgerEntryRepositoryPort ledgerEntryRepository;
     private final BusinessPolicyRepositoryPort businessPolicyRepository;
 
     public FinancialManagementService(
         WorkerAccountRepositoryPort workerAccountRepository,
         LeadChargeRepositoryPort leadChargeRepository,
         DepositReceiptRepositoryPort depositReceiptRepository,
+        LedgerEntryRepositoryPort ledgerEntryRepository,
         BusinessPolicyRepositoryPort businessPolicyRepository
     ) {
         this.workerAccountRepository = workerAccountRepository;
         this.leadChargeRepository = leadChargeRepository;
         this.depositReceiptRepository = depositReceiptRepository;
+        this.ledgerEntryRepository = ledgerEntryRepository;
         this.businessPolicyRepository = businessPolicyRepository;
     }
 
@@ -69,7 +75,18 @@ public class FinancialManagementService implements FinancialManagementUseCase {
                     );
 
                     return leadChargeRepository.save(charge)
-                        .then(workerAccountRepository.save(updated));
+                        .then(workerAccountRepository.save(updated))
+                        .flatMap(savedWorker -> ledgerEntryRepository.save(new LedgerEntry(
+                            UUID.randomUUID(),
+                            workerId,
+                            LedgerEntryType.LEAD_CHARGE,
+                            policy.leadCost().negate(),
+                            "Lead charge: " + source,
+                            null,
+                            charge.id().toString(),
+                            OffsetDateTime.now(),
+                            clientId
+                        )).thenReturn(savedWorker));
                 })
             );
     }
@@ -120,6 +137,17 @@ public class FinancialManagementService implements FinancialManagementUseCase {
                             .flatMap(worker -> workerAccountRepository.save(
                                 worker.applyApprovedDeposit(saved.amount(), policy.trustCreditLimit())
                             ))
+                            .flatMap(savedWorker -> ledgerEntryRepository.save(new LedgerEntry(
+                                UUID.randomUUID(),
+                                saved.workerId(),
+                                LedgerEntryType.DEPOSIT_APPROVED,
+                                saved.amount(),
+                                "Approved deposit",
+                                null,
+                                saved.id().toString(),
+                                OffsetDateTime.now(),
+                                adminId
+                            )).thenReturn(savedWorker))
                             .thenReturn(saved)
                         )
                     );
@@ -150,5 +178,105 @@ public class FinancialManagementService implements FinancialManagementUseCase {
         return workerAccountRepository.findWorkerById(workerId)
             .switchIfEmpty(Mono.error(new IllegalArgumentException("Worker not found")))
             .thenMany(depositReceiptRepository.findByWorkerId(workerId));
+    }
+
+    @Override
+    public Flux<LedgerEntry> listWorkerLedger(UUID workerId) {
+        return workerAccountRepository.findWorkerById(workerId)
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("Worker not found")))
+            .thenMany(ledgerEntryRepository.findByWorkerId(workerId));
+    }
+
+    @Override
+    public Mono<LedgerEntry> createAdjustment(UUID workerId, BigDecimal amount, String reason, UUID adminId) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) == 0) {
+            return Mono.error(new IllegalArgumentException("Adjustment amount must be different from zero"));
+        }
+        if (reason == null || reason.isBlank()) {
+            return Mono.error(new IllegalArgumentException("Adjustment reason is required"));
+        }
+
+        return businessPolicyRepository.getCurrent()
+            .flatMap(policy -> workerAccountRepository.findWorkerById(workerId)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("Worker not found")))
+                .flatMap(worker -> {
+                    WorkerAccount updated = new WorkerAccount(
+                        worker.id(),
+                        worker.fullName(),
+                        worker.email(),
+                        worker.balance().add(amount),
+                        worker.balance().add(amount).compareTo(policy.trustCreditLimit()) <= 0
+                    );
+
+                    LedgerEntryType type = amount.compareTo(BigDecimal.ZERO) > 0
+                        ? LedgerEntryType.ADJUSTMENT_CREDIT
+                        : LedgerEntryType.ADJUSTMENT_DEBIT;
+
+                    LedgerEntry entry = new LedgerEntry(
+                        UUID.randomUUID(),
+                        workerId,
+                        type,
+                        amount,
+                        reason.trim(),
+                        null,
+                        null,
+                        OffsetDateTime.now(),
+                        adminId
+                    );
+
+                    return workerAccountRepository.save(updated)
+                        .then(ledgerEntryRepository.save(entry));
+                })
+            );
+    }
+
+    @Override
+    public Mono<LedgerEntry> refundLedgerEntry(UUID entryId, String reason, UUID adminId) {
+        return ledgerEntryRepository.findById(entryId)
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("Ledger entry not found")))
+            .flatMap(original -> {
+                if (original.entryType() == LedgerEntryType.REFUND) {
+                    return Mono.error(new IllegalStateException("Refund cannot target another refund"));
+                }
+                return ledgerEntryRepository.findRefundByReferenceEntryId(entryId)
+                    .flatMap(existing -> Mono.<LedgerEntry>error(new IllegalStateException("Entry already refunded")))
+                    .switchIfEmpty(Mono.defer(() -> applyRefund(original, reason, adminId)));
+            });
+    }
+
+    private Mono<LedgerEntry> applyRefund(LedgerEntry original, String reason, UUID adminId) {
+        BigDecimal refundAmount = original.amount().negate();
+        String detail = (reason == null || reason.isBlank())
+            ? "Refund for entry " + original.id()
+            : reason.trim();
+
+        return businessPolicyRepository.getCurrent()
+            .flatMap(policy -> workerAccountRepository.findWorkerById(original.workerId())
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("Worker not found")))
+                .flatMap(worker -> {
+                    WorkerAccount updated = new WorkerAccount(
+                        worker.id(),
+                        worker.fullName(),
+                        worker.email(),
+                        worker.balance().add(refundAmount),
+                        worker.balance().add(refundAmount).compareTo(policy.trustCreditLimit()) <= 0
+                    );
+
+                    LedgerEntry refund = new LedgerEntry(
+                        UUID.randomUUID(),
+                        original.workerId(),
+                        LedgerEntryType.REFUND,
+                        refundAmount,
+                        detail,
+                        original.id(),
+                        original.externalReference(),
+                        OffsetDateTime.now(),
+                        adminId
+                    );
+
+                    return workerAccountRepository.save(updated)
+                        .then(ledgerEntryRepository.save(refund));
+                })
+            );
     }
 }

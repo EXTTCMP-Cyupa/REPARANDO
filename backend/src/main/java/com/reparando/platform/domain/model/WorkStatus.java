@@ -4,5 +4,8 @@ public enum WorkStatus {
     DIAGNOSTICO,
     COTIZADO,
     EN_PROCESO,
-    FINALIZADO
+    PAUSADO,
+    EN_DISPUTA,
+    FINALIZADO,
+    CANCELADO
 }

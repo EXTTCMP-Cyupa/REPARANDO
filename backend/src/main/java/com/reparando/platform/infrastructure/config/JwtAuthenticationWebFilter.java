@@ -13,6 +13,8 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Component
 public class JwtAuthenticationWebFilter implements WebFilter {
@@ -35,9 +37,11 @@ public class JwtAuthenticationWebFilter implements WebFilter {
             Claims claims = jwtService.parseToken(token);
             String subject = claims.getSubject();
             String role = String.valueOf(claims.get("role"));
+            UUID userId = resolveUserId(claims, subject);
+            JwtPrincipal principal = new JwtPrincipal(userId, subject, role);
 
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                subject,
+                principal,
                 null,
                 List.of(new SimpleGrantedAuthority("ROLE_" + role))
             );
@@ -48,5 +52,24 @@ public class JwtAuthenticationWebFilter implements WebFilter {
         } catch (Exception ignored) {
             return chain.filter(exchange);
         }
+    }
+
+    private UUID resolveUserId(Claims claims, String subject) {
+        Object userIdClaim = claims.get("userId");
+        if (userIdClaim != null) {
+            return UUID.fromString(userIdClaim.toString());
+        }
+
+        Map<String, UUID> fallback = Map.of(
+            "admin@reparando.app", UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            "worker@reparando.app", UUID.fromString("11111111-1111-1111-1111-111111111111"),
+            "worker2@reparando.app", UUID.fromString("44444444-4444-4444-4444-444444444444"),
+            "client@reparando.app", UUID.fromString("33333333-3333-3333-3333-333333333333")
+        );
+        UUID fallbackUserId = fallback.get(subject);
+        if (fallbackUserId == null) {
+            throw new IllegalArgumentException("Token does not contain a valid userId");
+        }
+        return fallbackUserId;
     }
 }

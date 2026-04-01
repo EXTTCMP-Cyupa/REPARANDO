@@ -1,6 +1,7 @@
 package com.reparando.platform.domain.port.in;
 
 import com.reparando.platform.domain.model.DepositReceipt;
+import com.reparando.platform.domain.model.LedgerEntry;
 import com.reparando.platform.domain.model.PaymentMethod;
 import com.reparando.platform.domain.model.WorkerAccount;
 import reactor.core.publisher.Flux;
@@ -24,4 +25,10 @@ public interface FinancialManagementUseCase {
     Flux<DepositReceipt> listPendingDeposits();
 
     Flux<DepositReceipt> listWorkerDeposits(UUID workerId);
+
+    Flux<LedgerEntry> listWorkerLedger(UUID workerId);
+
+    Mono<LedgerEntry> createAdjustment(UUID workerId, BigDecimal amount, String reason, UUID adminId);
+
+    Mono<LedgerEntry> refundLedgerEntry(UUID entryId, String reason, UUID adminId);
 }

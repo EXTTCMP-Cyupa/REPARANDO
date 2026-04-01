@@ -20,6 +20,8 @@ import java.util.UUID;
 @Service
 public class BiddingService implements BiddingUseCase {
 
+    private static final long NEED_EXPIRATION_DAYS = 7;
+
     private final ServiceNeedRepositoryPort serviceNeedRepository;
     private final BidProposalRepositoryPort bidProposalRepository;
     private final FinancialManagementUseCase financialManagementUseCase;
@@ -60,16 +62,34 @@ public class BiddingService implements BiddingUseCase {
 
     @Override
     public Mono<BidProposal> submitBid(UUID needId, UUID workerId, BigDecimal laborCost, String summary) {
+        if (laborCost == null || laborCost.compareTo(BigDecimal.ZERO) <= 0) {
+            return Mono.error(new IllegalArgumentException("Labor cost must be greater than zero"));
+        }
+        if (summary == null || summary.isBlank()) {
+            return Mono.error(new IllegalArgumentException("Bid summary is required"));
+        }
+
         return serviceNeedRepository.findNeedById(needId)
             .switchIfEmpty(Mono.error(new IllegalArgumentException("Need not found")))
             .filter(need -> need.status() == ServiceNeedStatus.OPEN)
             .switchIfEmpty(Mono.error(new IllegalStateException("Need is no longer open for proposals")))
+            .filter(this::isNeedOpenForBidding)
+            .switchIfEmpty(Mono.error(new IllegalStateException("Need expired for new proposals")))
+            .flatMap(need -> bidProposalRepository.findByNeedId(needId)
+                .any(existing -> existing.workerId().equals(workerId))
+                .flatMap(exists -> {
+                    if (exists) {
+                        return Mono.error(new IllegalStateException("Worker already submitted a proposal for this need"));
+                    }
+                    return Mono.just(need);
+                })
+            )
             .then(workerAccountRepository.findWorkerById(workerId))
             .switchIfEmpty(Mono.error(new IllegalArgumentException("Worker not found")))
             .filter(worker -> !worker.blocked())
             .switchIfEmpty(Mono.error(new IllegalStateException("Worker is blocked due to trust credit limit")))
             .flatMap(worker -> {
-                BidProposal proposal = new BidProposal(UUID.randomUUID(), needId, workerId, laborCost, summary, OffsetDateTime.now());
+                BidProposal proposal = new BidProposal(UUID.randomUUID(), needId, workerId, laborCost, summary.trim(), OffsetDateTime.now());
                 return bidProposalRepository.save(proposal);
             });
     }
@@ -97,6 +117,8 @@ public class BiddingService implements BiddingUseCase {
             .switchIfEmpty(Mono.error(new IllegalArgumentException("Need not found for client")))
             .filter(need -> need.status() == ServiceNeedStatus.OPEN)
             .switchIfEmpty(Mono.error(new IllegalStateException("Need already assigned")))
+            .filter(this::isNeedOpenForBidding)
+            .switchIfEmpty(Mono.error(new IllegalStateException("Need expired and cannot be assigned")))
             .flatMap(need -> bidProposalRepository.findBidById(bidId)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("Bid not found")))
                 .filter(proposal -> proposal.needId().equals(needId))
@@ -118,5 +140,9 @@ public class BiddingService implements BiddingUseCase {
                         OffsetDateTime.now()
                     )))
                     .thenReturn(proposal)));
+    }
+
+    private boolean isNeedOpenForBidding(ServiceNeed need) {
+        return need.createdAt() != null && need.createdAt().plusDays(NEED_EXPIRATION_DAYS).isAfter(OffsetDateTime.now());
     }
 }

@@ -46,7 +46,7 @@ public class AuthController {
             return Mono.error(new IllegalArgumentException("Invalid credentials"));
         }
 
-        String token = jwtService.generateToken(request.email(), role);
+        String token = jwtService.generateToken(request.email(), role, userId);
         return Mono.just(new LoginResponse(token, role, userId));
     }
 

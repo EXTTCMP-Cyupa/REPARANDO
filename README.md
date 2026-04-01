@@ -53,6 +53,9 @@ Frontend por defecto en: http://localhost:5173
 - POST /api/v1/finance/deposit/{depositId}/reject
 - GET /api/v1/finance/deposit/pending
 - GET /api/v1/finance/workers/{workerId}/account
+- GET /api/v1/finance/workers/{workerId}/ledger
+- POST /api/v1/finance/ledger/adjustments
+- POST /api/v1/finance/ledger/{entryId}/refund
 - POST /api/v1/finance/deposit/upload
 - POST /api/v1/workflow/{workOrderId}/status
 - GET /api/v1/admin/settings/business-policy
@@ -60,8 +63,11 @@ Frontend por defecto en: http://localhost:5173
 
 ## Nota de estado actual
 - La base hexagonal y reglas financieras criticas ya estan activas.
-- Marketplace y Licitacion estan en version inicial de arranque (con almacenamiento en memoria para esas rutas).
+- Marketplace y Licitacion persisten en PostgreSQL via R2DBC.
 - El workflow de estados esta implementado con validacion de transiciones.
+- Estados operativos soportados: DIAGNOSTICO, COTIZADO, EN_PROCESO, PAUSADO, EN_DISPUTA, FINALIZADO, CANCELADO.
+- Los endpoints criticos validan identidad del token (ownership) para evitar suplantacion por IDs en body.
+- Licitacion valida ofertas duplicadas por trabajador y vencimiento de necesidades (7 dias).
 
 ## Nota de entorno en Windows
 - En esta maquina Java y Node estaban instalados pero fuera de PATH.

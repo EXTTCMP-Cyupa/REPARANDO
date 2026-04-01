@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.Map;
+import java.util.UUID;
 
 @Component
 public class JwtService {
@@ -26,13 +27,13 @@ public class JwtService {
         this.expirationSeconds = expirationSeconds;
     }
 
-    public String generateToken(String subject, String role) {
+    public String generateToken(String subject, String role, UUID userId) {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(expirationSeconds);
 
         return Jwts.builder()
             .subject(subject)
-            .claims(Map.of("role", role))
+            .claims(Map.of("role", role, "userId", userId.toString()))
             .issuedAt(Date.from(now))
             .expiration(Date.from(exp))
             .signWith(secretKey)

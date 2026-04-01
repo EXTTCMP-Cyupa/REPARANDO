@@ -31,12 +31,15 @@ public class WorkWorkflowController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<WorkOrder> createWorkOrder(@RequestBody @Valid CreateWorkOrderRequest request) {
-        return workWorkflowUseCase.createWorkOrder(
-            request.clientId(),
-            request.workerId(),
-            request.description(),
-            request.category()
-        );
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, request.clientId())
+                .then(workWorkflowUseCase.createWorkOrder(
+                    request.clientId(),
+                    request.workerId(),
+                    request.description(),
+                    request.category()
+                ))
+            );
     }
 
     @PostMapping("/{workOrderId}/status")
@@ -47,24 +50,33 @@ public class WorkWorkflowController {
 
     @GetMapping("/worker/{workerId}")
     public Flux<WorkOrder> listWorkerOrders(@PathVariable UUID workerId) {
-        return workWorkflowUseCase.listWorkerOrders(workerId);
+        return CurrentUserContext.require()
+            .flatMapMany(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, workerId)
+                .thenMany(workWorkflowUseCase.listWorkerOrders(workerId))
+            );
     }
 
     @GetMapping("/client/{clientId}")
     public Flux<WorkOrder> listClientOrders(@PathVariable UUID clientId) {
-        return workWorkflowUseCase.listClientOrders(clientId);
+        return CurrentUserContext.require()
+            .flatMapMany(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, clientId)
+                .thenMany(workWorkflowUseCase.listClientOrders(clientId))
+            );
     }
 
     @PostMapping("/{workOrderId}/materials")
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<WorkMaterial> addMaterial(@PathVariable UUID workOrderId, @RequestBody @Valid AddMaterialRequest request) {
-        return workWorkflowUseCase.addMaterial(
-            workOrderId,
-            request.workerId(),
-            request.name(),
-            request.quantity(),
-            request.unitCost()
-        );
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, request.workerId())
+                .then(workWorkflowUseCase.addMaterial(
+                    workOrderId,
+                    request.workerId(),
+                    request.name(),
+                    request.quantity(),
+                    request.unitCost()
+                ))
+            );
     }
 
     @GetMapping("/{workOrderId}/materials")
@@ -96,13 +108,16 @@ public class WorkWorkflowController {
         @PathVariable UUID workOrderId,
         @RequestBody @Valid SubmitQuotationRequest request
     ) {
-        return workWorkflowUseCase.submitQuotation(
-            workOrderId,
-            request.workerId(),
-            request.laborCost(),
-            request.materialsCost(),
-            request.items()
-        );
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, request.workerId())
+                .then(workWorkflowUseCase.submitQuotation(
+                    workOrderId,
+                    request.workerId(),
+                    request.laborCost(),
+                    request.materialsCost(),
+                    request.items()
+                ))
+            );
     }
 
     @GetMapping("/{workOrderId}/quotation")
@@ -117,7 +132,10 @@ public class WorkWorkflowController {
         @PathVariable UUID workOrderId,
         @RequestBody @Valid ApproveQuotationRequest request
     ) {
-        return workWorkflowUseCase.approveQuotation(workOrderId, request.clientId());
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, request.clientId())
+                .then(workWorkflowUseCase.approveQuotation(workOrderId, request.clientId()))
+            );
     }
 
     // Work notes endpoints
@@ -142,7 +160,10 @@ public class WorkWorkflowController {
         @PathVariable int noteIndex,
         @RequestBody @Valid ApproveWorkNoteRequest request
     ) {
-        return workWorkflowUseCase.approveWorkNote(workOrderId, noteIndex, request.clientId());
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, request.clientId())
+                .then(workWorkflowUseCase.approveWorkNote(workOrderId, noteIndex, request.clientId()))
+            );
     }
 
     @PostMapping("/{workOrderId}/work-notes/{noteIndex}/reject")
@@ -152,7 +173,10 @@ public class WorkWorkflowController {
         @PathVariable int noteIndex,
         @RequestBody @Valid ApproveWorkNoteRequest request
     ) {
-        return workWorkflowUseCase.rejectWorkNote(workOrderId, noteIndex, request.clientId());
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, request.clientId())
+                .then(workWorkflowUseCase.rejectWorkNote(workOrderId, noteIndex, request.clientId()))
+            );
     }
 
     // Completion endpoints

@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { listNeedBids, listServiceNeeds, publishServiceNeed, selectNeedBid, submitBidProposal } from "../../lib/api";
 import { HelpTooltip, InfoBox } from "../../components/HelpTooltip";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+
+const CLIENT_NEED_DRAFT_PREFIX = "reparando:bidding:client-draft:";
+const TITLE_MIN_LENGTH = 8;
+const DESCRIPTION_MIN_LENGTH = 24;
 
 type BidItem = {
   id: string;
@@ -94,6 +98,12 @@ export function BiddingView() {
   const { session } = useAuth();
   const role = session?.user.role;
 
+  // Tabs state - different for CLIENT vs WORKER
+  const [activeTab, setActiveTab] = useState<"CREATE" | "OPEN" | "MANAGE" | "TRACKING">(
+    role === "CLIENT" ? "CREATE" : "OPEN"
+  );
+
+  // Form state for creating opportunities (CLIENT only)
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
@@ -101,10 +111,12 @@ export function BiddingView() {
   const [urgencyPreset, setUrgencyPreset] = useState<"HOY" | "MANANA" | "SEMANA" | "FECHA">("HOY");
   const [preferredDate, setPreferredDate] = useState("");
 
+  // Needs and bidding state
   const [needs, setNeeds] = useState<NeedItem[]>([]);
   const [selectedNeedId, setSelectedNeedId] = useState<string | null>(null);
   const [costInput, setCostInput] = useState("");
   const [summaryInput, setSummaryInput] = useState("");
+  const [expandedNeedId, setExpandedNeedId] = useState<string | null>(null);
 
   const [bids, setBids] = useState<BidItem[]>([]);
   const [workerTracking, setWorkerTracking] = useState<WorkerBidTrack[]>([]);
@@ -113,7 +125,14 @@ export function BiddingView() {
   const [trackingSort, setTrackingSort] = useState<"NEWEST" | "OLDEST">("NEWEST");
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+
   const selectedNeed = needs.find((need) => need.id === selectedNeedId) ?? null;
+
+  const clientDraftKey = useMemo(() => {
+    if (!session || role !== "CLIENT") return null;
+    return `${CLIENT_NEED_DRAFT_PREFIX}${session.user.userId}`;
+  }, [session, role]);
 
   const clientOpenNeeds = useMemo(() => needs.filter((need) => need.status === "OPEN").length, [needs]);
   const clientAssignedNeeds = useMemo(() => needs.filter((need) => need.status === "ASSIGNED").length, [needs]);
@@ -218,6 +237,56 @@ export function BiddingView() {
     }
   }, [selectedNeedId]);
 
+  useEffect(() => {
+    if (!clientDraftKey) return;
+
+    try {
+      const raw = window.localStorage.getItem(clientDraftKey);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as {
+        title?: string;
+        description?: string;
+        category?: string;
+        categoryQuery?: string;
+        urgencyPreset?: "HOY" | "MANANA" | "SEMANA" | "FECHA";
+        preferredDate?: string;
+        savedAt?: string;
+      };
+
+      setTitle(parsed.title ?? "");
+      setDescription(parsed.description ?? "");
+      setCategory(parsed.category ?? "");
+      setCategoryQuery(parsed.categoryQuery ?? "");
+      setUrgencyPreset(parsed.urgencyPreset ?? "HOY");
+      setPreferredDate(parsed.preferredDate ?? "");
+      setDraftSavedAt(parsed.savedAt ?? null);
+    } catch {
+      // Ignore malformed local drafts.
+    }
+  }, [clientDraftKey]);
+
+  useEffect(() => {
+    if (!clientDraftKey || role !== "CLIENT") return;
+
+    const payload = {
+      title,
+      description,
+      category,
+      categoryQuery,
+      urgencyPreset,
+      preferredDate,
+      savedAt: new Date().toISOString()
+    };
+
+    try {
+      window.localStorage.setItem(clientDraftKey, JSON.stringify(payload));
+      setDraftSavedAt(payload.savedAt);
+    } catch {
+      // Ignore storage quota errors.
+    }
+  }, [clientDraftKey, role, title, description, category, categoryQuery, urgencyPreset, preferredDate]);
+
   const onPublishNeed = async () => {
     if (!session) return;
     if (role !== "CLIENT") {
@@ -239,18 +308,20 @@ export function BiddingView() {
       return;
     }
 
-    const urgencyLabel =
-      urgencyPreset === "HOY"
-        ? "Urgente (hoy)"
-        : urgencyPreset === "MANANA"
-          ? "Mañana"
-          : urgencyPreset === "SEMANA"
-            ? "Próxima semana"
-            : preferredDate
-              ? `Fecha específica: ${preferredDate}`
-              : "Fecha específica por confirmar";
+    if (title.trim().length < TITLE_MIN_LENGTH) {
+      setMessage(`⚠️ El título debe tener al menos ${TITLE_MIN_LENGTH} caracteres para que los técnicos entiendan mejor el trabajo.`);
+      return;
+    }
+    if (description.trim().length < DESCRIPTION_MIN_LENGTH) {
+      setMessage(`⚠️ La descripción debe tener al menos ${DESCRIPTION_MIN_LENGTH} caracteres con contexto, alcance y ubicación.`);
+      return;
+    }
+    if (urgencyPreset === "FECHA" && !preferredDate) {
+      setMessage("⚠️ Si eliges fecha específica, selecciona una fecha para publicar.");
+      return;
+    }
 
-    const descriptionPayload = `${description.trim()}\n\nUrgencia solicitada: ${urgencyLabel}`;
+    const descriptionPayload = `${description.trim()}\n\nUrgencia solicitada: ${publishUrgencyLabel}`;
 
     try {
       setBusy(true);
@@ -267,8 +338,13 @@ export function BiddingView() {
       setTitle("");
       setDescription("");
       setCategory("");
+      setCategoryQuery("");
       setUrgencyPreset("HOY");
       setPreferredDate("");
+      if (clientDraftKey) {
+        window.localStorage.removeItem(clientDraftKey);
+      }
+      setDraftSavedAt(null);
       await loadNeeds();
       setMessage(`✅ Oportunidad publicada. Los técnicos ya pueden verla y enviar propuestas.`);
     } catch {
@@ -391,26 +467,59 @@ export function BiddingView() {
     });
   }, [categoryQuery]);
 
+  const publishUrgencyLabel = useMemo(() => {
+    if (urgencyPreset === "HOY") return "Urgente (hoy)";
+    if (urgencyPreset === "MANANA") return "Mañana";
+    if (urgencyPreset === "SEMANA") return "Próxima semana";
+    return preferredDate ? `Fecha específica: ${preferredDate}` : "Fecha específica por confirmar";
+  }, [urgencyPreset, preferredDate]);
+
+  const publishValidation = useMemo(() => {
+    const titleLen = title.trim().length;
+    const descriptionLen = description.trim().length;
+    const categoryLen = category.trim().length;
+    const hasDateIfNeeded = urgencyPreset !== "FECHA" || Boolean(preferredDate);
+
+    return {
+      titleLen,
+      descriptionLen,
+      titleReady: titleLen >= TITLE_MIN_LENGTH,
+      descriptionReady: descriptionLen >= DESCRIPTION_MIN_LENGTH,
+      categoryReady: categoryLen > 0,
+      hasDateIfNeeded,
+      ready: titleLen >= TITLE_MIN_LENGTH && descriptionLen >= DESCRIPTION_MIN_LENGTH && categoryLen > 0 && hasDateIfNeeded
+    };
+  }, [title, description, category, urgencyPreset, preferredDate]);
+
+  // Tab buttons styles
+  const tabButtonClass = (tab: string, active: boolean) =>
+    `px-4 py-2 font-semibold rounded-lg transition ${
+      active ? "bg-brand-900 text-white" : "bg-brand-50 text-brand-900 hover:bg-brand-100"
+    }`;
+
   return (
     <section className="space-y-4">
       {/* Role-specific header */}
       <article className="rounded-lg border-2 border-brand-900 bg-gradient-to-r from-brand-900 to-brand-700 p-6 text-white">
         <div className="flex items-center justify-between">
           <div>
+            <p className="mb-2 inline-block rounded-full bg-white/20 px-3 py-1 text-[11px] font-bold">
+              Licitaciones & Oportunidades • v2.2 • Separadas por Tab
+            </p>
             {role === "CLIENT" ? (
               <>
-                <h1 className="text-2xl font-extrabold">Crear Oportunidades & Revisar Propuestas</h1>
-                <p className="mt-1 text-sm text-brand-100">Publica trabajos, recibe ofertas de técnicos y selecciona al mejor.</p>
+                <h1 className="text-2xl font-extrabold">Centro de Oportunidades</h1>
+                <p className="mt-1 text-sm text-brand-100">Publica trabajos, revisa postulaciones y selecciona el mejor técnico.</p>
               </>
             ) : (
               <>
-                <h1 className="text-2xl font-extrabold">Busca Trabajos & Envía Propuestas</h1>
-                <p className="mt-1 text-sm text-brand-100">Ve oportunidades disponibles y postúlate con tus mejores precios.</p>
+                <h1 className="text-2xl font-extrabold">Mercado de Trabajos</h1>
+                <p className="mt-1 text-sm text-brand-100">Ve todas las oportunidades disponibles y envía tus propuestas.</p>
               </>
             )}
           </div>
           <div className="rounded-full bg-white/20 px-4 py-2">
-            <p className="text-sm font-bold">Modo: {role === "CLIENT" ? "Cliente" : "Técnico"}</p>
+            <p className="text-sm font-bold">{role === "CLIENT" ? "👨‍💼 Cliente" : "👷 Técnico"}</p>
           </div>
         </div>
       </article>
@@ -428,352 +537,504 @@ export function BiddingView() {
         </div>
       )}
 
-      {/* Main content */}
-      <div className="card">
-        <div className={"grid gap-3 " + (role === "WORKER" ? "lg:grid-cols-[1.1fr_1fr]" : "md:grid-cols-2")}>
-        {role === "CLIENT" && (
-          <div className="rounded-xl border border-brand-100 bg-white p-4">
-            <p className="font-bold">Crear nueva oportunidad de trabajo</p>
-            <p className="text-sm">Publica una necesidad clara para recibir mejores propuestas.</p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <p className="rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-900">
-                Oportunidades abiertas: {clientOpenNeeds}
-              </p>
-              <p className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
-                Asignadas: {clientAssignedNeeds}
-              </p>
-              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
-                Propuestas recibidas: {bids.length}
-              </p>
-            </div>
-            <div className="mt-3 space-y-2 text-sm">
-              <label className="block text-xs font-semibold text-slate-600">Título del trabajo</label>
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                className="w-full rounded-lg border border-brand-200 px-3 py-2"
-                placeholder="Ej: Reparar fuga en cocina"
-              />
-              <label className="block text-xs font-semibold text-slate-600">Urgencia y detalles</label>
-              <textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                className="w-full rounded-lg border border-brand-200 px-3 py-2"
-                placeholder="Describe el alcance, urgencia y detalles"
-              />
-              <label className="block text-xs font-semibold text-slate-600">Categoría</label>
-              <input
-                value={category}
-                onChange={(event) => setCategory(event.target.value)}
-                className="w-full rounded-lg border border-brand-200 px-3 py-2"
-                placeholder="Ej: PLOMERO"
-              />
-
-              <label className="block text-xs font-semibold text-slate-600">Buscar categoría rápida</label>
-              <input
-                value={categoryQuery}
-                onChange={(event) => setCategoryQuery(event.target.value)}
-                className="w-full rounded-lg border border-brand-200 px-3 py-2"
-                placeholder="Ej: pintura, césped, cocina, vehículo, oficina..."
-              />
-
-              <div className="max-h-36 space-y-2 overflow-auto rounded-lg border border-brand-100 bg-brand-50 p-2">
-                {filteredCategoryOptions.slice(0, 18).map((option) => (
-                  <button
-                    key={option.label}
-                    type="button"
-                    onClick={() => {
-                      setCategory(option.label);
-                      setCategoryQuery(option.label);
-                    }}
-                    className={
-                      "mr-2 mb-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-bold " +
-                      (category === option.label ? "bg-brand-900 text-white" : "bg-white text-brand-900")
-                    }
-                  >
-                    <span>{option.label}</span>
-                    <span className="opacity-70">· {option.group}</span>
-                  </button>
-                ))}
-                {filteredCategoryOptions.length === 0 && (
-                  <p className="text-xs text-slate-600">No encontramos coincidencias. Puedes escribir una categoría personalizada.</p>
-                )}
-              </div>
-
-              <label className="block text-xs font-semibold text-slate-600">¿Para cuándo lo necesitas?</label>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {[
-                  { id: "HOY", label: "Urgente (hoy)" },
-                  { id: "MANANA", label: "Mañana" },
-                  { id: "SEMANA", label: "Próxima semana" }
-                ].map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => setUrgencyPreset(option.id as "HOY" | "MANANA" | "SEMANA")}
-                    className={
-                      "rounded-lg px-3 py-2 text-xs font-bold " +
-                      (urgencyPreset === option.id ? "bg-brand-900 text-white" : "bg-brand-50 text-brand-900")
-                    }
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                <input
-                  type="date"
-                  value={preferredDate}
-                  onChange={(event) => {
-                    setPreferredDate(event.target.value);
-                    if (event.target.value) {
-                      setUrgencyPreset("FECHA");
-                    }
-                  }}
-                  className="w-full rounded-lg border border-brand-200 px-3 py-2"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPreferredDate("");
-                    setUrgencyPreset("HOY");
-                  }}
-                  className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700"
-                >
-                  Limpiar fecha
-                </button>
-              </div>
-            </div>
+      {/* Tab Navigation */}
+      <div className="flex flex-wrap gap-2">
+        {role === "CLIENT" ? (
+          <>
             <button
-              onClick={onPublishNeed}
-              disabled={busy || !title.trim() || !description.trim() || !category.trim()}
-              className="mt-3 w-full rounded-lg bg-brand-900 px-3 py-2 text-sm font-bold text-brand-50 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => setActiveTab("CREATE")}
+              className={tabButtonClass("CREATE", activeTab === "CREATE")}
             >
-              {busy ? "Publicando..." : "Publicar oportunidad"}
+              ✍️ Crear Oportunidad
             </button>
-          </div>
-        )}
-
-        <div className="rounded-xl border border-brand-100 bg-white p-4">
-          <p className="font-bold">Muro de Necesidades Abiertas</p>
-          <p className="text-sm">Selecciona una necesidad para ver detalles y ofertar.</p>
-          <div className="mt-3 max-h-72 space-y-2 overflow-auto text-sm">
-            {needs.map((need) => (
-              <article
-                key={need.id}
-                className={
-                  "rounded-lg border px-3 py-2 text-left " +
-                  (selectedNeedId === need.id ? "border-brand-700 bg-brand-100" : "border-brand-100 bg-white")
-                }
-              >
-                <p className="font-bold">{need.title}</p>
-                <p className="text-xs">{need.category}</p>
-                <p className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${need.status === "OPEN" ? "bg-emerald-100 text-emerald-700" : "bg-brand-100 text-brand-900"}`}>
-                  {need.status === "OPEN" ? "Abierta" : "Asignada"}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {need.status === "OPEN" ? `Abierta · ${getNeedRemainingDays(need.createdAt)} días restantes` : "Asignada al técnico"}
-                </p>
-                <p className="text-xs text-brand-700">#{need.id.slice(0, 8)}</p>
-                <button
-                  onClick={() => setSelectedNeedId(need.id)}
-                  className="mt-2 w-full rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-bold text-brand-900 hover:bg-brand-100"
-                >
-                  Ver detalles y ofertar
-                </button>
-              </article>
-            ))}
-            {needs.length === 0 && (
-              <p className="rounded-lg border border-brand-100 bg-white px-3 py-2">
-                {role === "CLIENT"
-                  ? "Aun no publicaste necesidades. Usa el formulario para crear la primera."
-                  : "No hay necesidades activas por el momento."
-                }
-              </p>
-            )}
-          </div>
-
-          {role === "CLIENT" && selectedNeed && (
-            <div className="mt-3 rounded-lg border border-brand-100 bg-brand-50 p-3 text-xs">
-              <p className="font-bold text-brand-900">Oportunidad seleccionada</p>
-              <p className="mt-1 text-slate-700">{selectedNeed.title}</p>
-              <p className="text-slate-600">{selectedNeed.description}</p>
-              <p className="mt-1 text-slate-700">Propuestas: {bids.length}</p>
-              <p className="text-slate-700">
-                Presupuesto estimado: {selectedNeedBudgetRange ? `$${selectedNeedBudgetRange.min.toFixed(2)} - $${selectedNeedBudgetRange.max.toFixed(2)}` : "Sin propuestas aún"}
-              </p>
-            </div>
-          )}
-        </div>
-
-        {role === "WORKER" && (
-          <article className="rounded-xl border border-brand-100 bg-white p-4">
-            <p className="font-bold">
-              Enviar propuesta para: {selectedNeed ? selectedNeed.title : "Selecciona una necesidad"}
-            </p>
-            {selectedNeed && (
-              <>
-                <p className="mt-2 text-sm">
-                  <span className="font-semibold">Descripción:</span> {selectedNeed.description}
-                </p>
-                <p className="mt-1 text-xs text-slate-600">Estado: {selectedNeed.status === "OPEN" ? `Abierta · ${selectedNeedDaysRemaining} días restantes` : "Asignada"}</p>
-              </>
-            )}
-            {selectedWorkerStatus && (
-              <p className={
-                "mt-2 rounded-lg px-3 py-2 text-xs font-semibold " +
-                (selectedWorkerStatus === "Pendiente de aceptación"
-                  ? "bg-amber-100 text-amber-800"
-                  : selectedWorkerStatus === "Aceptada"
-                    ? "bg-emerald-100 text-emerald-700"
-                    : "bg-red-100 text-red-700")
-              }>
-                Estado de tu propuesta: {selectedWorkerStatus}
-              </p>
-            )}
-
-            <div className="mt-3 space-y-2 text-sm">
-              <input
-                value={costInput}
-                onChange={(event) => setCostInput(event.target.value)}
-                className="w-full rounded-lg border border-brand-200 px-3 py-2"
-                placeholder="Mano de obra ($)"
-                disabled={!selectedNeed || workerBidOnSelected || selectedNeed.status !== "OPEN"}
-              />
-              <textarea
-                value={summaryInput}
-                onChange={(event) => setSummaryInput(event.target.value)}
-                className="w-full rounded-lg border border-brand-200 px-3 py-2"
-                placeholder="Resumen de propuesta / metodología"
-                disabled={!selectedNeed || workerBidOnSelected || selectedNeed.status !== "OPEN"}
-              />
-            </div>
             <button
-              onClick={onSubmitBid}
-              disabled={busy || !selectedNeedId || selectedNeed?.status !== "OPEN" || workerBidOnSelected}
-              className="mt-3 w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => setActiveTab("MANAGE")}
+              className={tabButtonClass("MANAGE", activeTab === "MANAGE")}
             >
-              {busy ? "Enviando..." : workerBidOnSelected ? "Pendiente de aceptación" : "Enviar propuesta"}
+              📋 Mis Oportunidades ({clientOpenNeeds})
             </button>
-
-            <div className="mt-4 border-t border-brand-100 pt-3">
-              <p className="font-bold">Seguimiento de mis propuestas</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {[
-                  { id: "TODAS", label: "Todas" },
-                  { id: "EN_REVISION", label: "En revisión" },
-                  { id: "ACEPTADA", label: "Aceptadas" },
-                  { id: "RECHAZADA", label: "Rechazadas" }
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setTrackingFilter(item.id as "TODAS" | "EN_REVISION" | "ACEPTADA" | "RECHAZADA")}
-                    className={
-                      "rounded-full px-2 py-1 text-[11px] font-bold " +
-                      (trackingFilter === item.id ? "bg-brand-900 text-white" : "bg-brand-50 text-brand-900")
-                    }
-                  >
-                    {item.label}
-                  </button>
-                ))}
-                <select
-                  value={trackingSort}
-                  onChange={(event) => setTrackingSort(event.target.value as "NEWEST" | "OLDEST")}
-                  className="rounded-full border border-brand-100 bg-white px-3 py-1 text-[11px] font-bold text-brand-900"
-                >
-                  <option value="NEWEST">Más recientes</option>
-                  <option value="OLDEST">Más antiguas</option>
-                </select>
-              </div>
-              {trackingBusy ? (
-                <p className="mt-2 text-xs text-slate-600">Actualizando seguimiento...</p>
-              ) : workerTracking.length === 0 ? (
-                <p className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-900">
-                  Aún no has enviado propuestas.
-                </p>
-              ) : filteredWorkerTracking.length === 0 ? (
-                <p className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-900">
-                  No hay propuestas para el filtro seleccionado.
-                </p>
-              ) : (
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {filteredWorkerTracking.slice(0, 8).map((track) => (
-                    <article key={track.bidId} className="rounded-lg border border-brand-100 bg-brand-50 p-2 text-xs">
-                      <p className="font-bold">{track.needTitle}</p>
-                      <p>ID: #{track.bidId.slice(0, 8)}</p>
-                      <p>Costo: ${Number(track.laborCost).toFixed(2)}</p>
-                      <p>Fecha: {new Date(track.createdAt).toLocaleString()}</p>
-                      <p
-                        className={
-                          "mt-1 inline-block rounded-full px-2 py-0.5 font-bold " +
-                          (track.status === "EN_REVISION"
-                            ? "bg-amber-100 text-amber-800"
-                            : track.status === "ACEPTADA"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-red-100 text-red-700")
-                        }
-                      >
-                        {track.status === "EN_REVISION" ? "En revisión" : track.status === "ACEPTADA" ? "Aceptada" : "Rechazada"}
-                      </p>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
-          </article>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => setActiveTab("OPEN")}
+              className={tabButtonClass("OPEN", activeTab === "OPEN")}
+            >
+              🔍 Oportunidades Abiertas ({needs.filter(n => n.status === "OPEN").length})
+            </button>
+            <button
+              onClick={() => setActiveTab("TRACKING")}
+              className={tabButtonClass("TRACKING", activeTab === "TRACKING")}
+            >
+              📊 Mis Postulaciones ({workerTracking.length})
+            </button>
+          </>
         )}
       </div>
 
-      {message && <p className="mt-4 rounded-lg bg-brand-100 px-3 py-2 text-sm font-semibold text-brand-900">{message}</p>}
+      {/* Tab Content */}
+      <div className="space-y-4">
+        {/* CLIENT: CREATE TAB */}
+        {role === "CLIENT" && activeTab === "CREATE" && (
+          <div className="rounded-xl border border-brand-100 bg-white p-6 space-y-4">
+            <div>
+              <h2 className="text-xl font-bold">Publicar Nueva Oportunidad de Trabajo</h2>
+              <p className="text-sm text-slate-600">Detalla el trabajo para recibir mejores propuestas de técnicos.</p>
+              {draftSavedAt && (
+                <p className="mt-2 text-xs text-slate-500">
+                  🔄 Borrador guardado: {new Date(draftSavedAt).toLocaleTimeString()}
+                </p>
+              )}
+            </div>
 
-      {role === "CLIENT" && <div className="mt-4 rounded-xl border border-brand-100 bg-white p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="font-bold">Propuestas para tu oportunidad</p>
-            <p className="text-xs text-slate-600">
-              {selectedNeed ? `Revisa y selecciona la mejor propuesta para: ${selectedNeed.title}` : "Selecciona una necesidad para revisar propuestas."}
-            </p>
-          </div>
-          {selectedNeed?.status === "ASSIGNED" && (
-            <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700">
-              Oportunidad ya asignada
-            </span>
-          )}
-        </div>
-
-        <div className="space-y-3">
-          {bids.map((bid) => (
-            <article key={bid.id} className="rounded-xl border border-brand-100 bg-brand-50 p-4 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-bold">Propuesta #{bid.id.slice(0, 8)}</p>
-                <p className="text-xs text-slate-500">{new Date(bid.createdAt).toLocaleString()}</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-lg border border-brand-100 bg-brand-50 px-4 py-3">
+                <p className="text-sm font-semibold text-brand-900">Oportunidades Abiertas</p>
+                <p className="text-2xl font-bold text-brand-900">{clientOpenNeeds}</p>
               </div>
-              <p>Worker: {bid.workerId}</p>
-              <p>Costo ofertado: ${Number(bid.laborCost).toFixed(2)}</p>
-              <p>Metodología: {bid.summary}</p>
-              {selectedNeed?.status === "OPEN" && (
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3">
+                <p className="text-sm font-semibold text-emerald-700">Asignadas</p>
+                <p className="text-2xl font-bold text-emerald-700">{clientAssignedNeeds}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-sm font-semibold text-slate-700">Postulaciones Recibidas</p>
+                <p className="text-2xl font-bold text-slate-700">{bids.length}</p>
+              </div>
+            </div>
+
+            <InfoBox
+              variant={publishValidation.ready ? "success" : "warning"}
+              title={publishValidation.ready ? "✅ Formulario listo para publicar" : "⚠️ Completa estos puntos"}
+              text={
+                publishValidation.ready
+                  ? `Tu oportunidad se publicará con urgencia: ${publishUrgencyLabel}`
+                  : `Mínimo ${TITLE_MIN_LENGTH} caracteres en título, ${DESCRIPTION_MIN_LENGTH} en descripción, categoría obligatoria${urgencyPreset === "FECHA" ? " y fecha específica" : ""}.`
+              }
+            />
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Título del trabajo (mínimo 8 caracteres)</label>
+                <input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  className="w-full rounded-lg border border-brand-200 px-4 py-2"
+                  placeholder="Ej: Reparar fuga en cocina"
+                />
+                <p className="text-xs text-slate-500 mt-1">{publishValidation.titleLen}/{TITLE_MIN_LENGTH} mínimo</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Descripción detallada (mínimo 24 caracteres)</label>
+                <textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  className="w-full rounded-lg border border-brand-200 px-4 py-2 min-h-24"
+                  placeholder="Describe el alcance, urgencia, ubicación y detalles importantes"
+                />
+                <p className="text-xs text-slate-500 mt-1">{publishValidation.descriptionLen}/{DESCRIPTION_MIN_LENGTH} mínimo</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Categoría</label>
+                <input
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                  className="w-full rounded-lg border border-brand-200 px-4 py-2 mb-2"
+                  placeholder="Categoría seleccionada"
+                  readOnly
+                />
+                <input
+                  value={categoryQuery}
+                  onChange={(event) => setCategoryQuery(event.target.value)}
+                  className="w-full rounded-lg border border-brand-200 px-4 py-2 text-sm"
+                  placeholder="Busca: pintura, electricidad, plomería, etc."
+                />
+                <div className="max-h-48 space-y-2 overflow-auto rounded-lg border border-brand-100 bg-brand-50 p-3 mt-2">
+                  {filteredCategoryOptions.slice(0, 20).map((option) => (
+                    <button
+                      key={option.label}
+                      type="button"
+                      onClick={() => {
+                        setCategory(option.label);
+                      }}
+                      className={
+                        "mr-2 mb-2 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition " +
+                        (category === option.label ? "bg-brand-900 text-white" : "bg-white text-brand-900 hover:bg-brand-100")
+                      }
+                    >
+                      <span>{option.label}</span>
+                      <span className="opacity-70">· {option.group}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">¿Para cuándo lo necesitas?</label>
+                <div className="grid gap-2 sm:grid-cols-3 mb-3">
+                  {[
+                    { id: "HOY", label: "🔥 Urgente (hoy)" },
+                    { id: "MANANA", label: "📅 Mañana" },
+                    { id: "SEMANA", label: "📆 Próxima semana" }
+                  ].map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setUrgencyPreset(option.id as "HOY" | "MANANA" | "SEMANA")}
+                      className={
+                        "rounded-lg px-3 py-2 text-sm font-bold transition " +
+                        (urgencyPreset === option.id ? "bg-brand-900 text-white" : "bg-brand-50 text-brand-900 hover:bg-brand-100")
+                      }
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <input
+                    type="date"
+                    value={preferredDate}
+                    onChange={(event) => {
+                      setPreferredDate(event.target.value);
+                      if (event.target.value) {
+                        setUrgencyPreset("FECHA");
+                      }
+                    }}
+                    className="rounded-lg border border-brand-200 px-4 py-2"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreferredDate("");
+                      setUrgencyPreset("HOY");
+                    }}
+                    className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200 transition"
+                  >
+                    Limpiar
+                  </button>
+                </div>
+                <p className="text-xs text-slate-600 mt-2">Urgencia: <strong>{publishUrgencyLabel}</strong></p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 border-t border-brand-100 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setTitle("");
+                  setDescription("");
+                  setCategory("");
+                  setCategoryQuery("");
+                  setUrgencyPreset("HOY");
+                  setPreferredDate("");
+                  if (clientDraftKey) {
+                    window.localStorage.removeItem(clientDraftKey);
+                    setDraftSavedAt(null);
+                  }
+                  setMessage("✅ Borrador limpiado.");
+                }}
+                className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200 transition"
+              >
+                🗑️ Limpiar Borrador
+              </button>
+              <button
+                onClick={onPublishNeed}
+                disabled={busy || !publishValidation.ready}
+                className="w-full rounded-lg bg-brand-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-60 disabled:cursor-not-allowed hover:bg-brand-800 transition"
+              >
+                {busy ? "Publicando..." : "📢 Publicar Oportunidad"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* CLIENT: MANAGE TAB - Mis Oportunidades */}
+        {role === "CLIENT" && activeTab === "MANAGE" && (
+          <div className="space-y-4">
+            {needs.filter(n => n.status === "OPEN" || n.status === "ASSIGNED").length === 0 ? (
+              <div className="rounded-xl border border-brand-100 bg-white p-6 text-center">
+                <p className="text-slate-600">No tienes oportunidades publicadas aún.</p>
                 <button
-                  onClick={() => onSelectBid(bid.id)}
-                  disabled={busy}
-                  className="mt-2 rounded-lg bg-brand-900 px-3 py-2 text-sm font-bold text-brand-50 disabled:opacity-60"
+                  onClick={() => setActiveTab("CREATE")}
+                  className="mt-3 rounded-lg bg-brand-900 px-4 py-2 text-sm font-bold text-white hover:bg-brand-800 transition"
                 >
-                  Seleccionar propuesta
+                  ➕ Crear tu primera oportunidad
                 </button>
+              </div>
+            ) : (
+              needs
+                .filter(n => n.status === "OPEN" || n.status === "ASSIGNED")
+                .map((need) => (
+                  <div key={need.id} className="rounded-xl border border-brand-100 bg-white overflow-hidden shadow-sm hover:shadow-md transition">
+                    <button
+                      onClick={() => setExpandedNeedId(expandedNeedId === need.id ? null : need.id)}
+                      className="w-full p-4 text-left hover:bg-brand-50 transition flex items-center justify-between"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="font-bold text-lg">{need.title}</h3>
+                          <span className={`inline-block rounded-full px-2 py-1 text-xs font-bold ${
+                            need.status === "OPEN" ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"
+                          }`}>
+                            {need.status === "OPEN" ? "Abierta" : "Asignada"}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-600">{need.category}</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {need.status === "OPEN" ? `Abierta hace ${getNeedRemainingDays(need.createdAt)} días · 3 días restantes` : "Asignada"}
+                        </p>
+                      </div>
+                      <div className="ml-4">
+                        {expandedNeedId === need.id ? <ChevronUp /> : <ChevronDown />}
+                      </div>
+                    </button>
+
+                    {expandedNeedId === need.id && (
+                      <div className="border-t border-brand-100 p-4 space-y-4 bg-brand-50">
+                        <div>
+                          <p className="font-semibold text-sm text-slate-700 mb-2">Descripción</p>
+                          <p className="text-sm text-slate-600 whitespace-pre-wrap">{need.description}</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="rounded-lg bg-white border border-brand-100 p-3">
+                            <p className="text-xs font-semibold text-slate-600"># Postulaciones</p>
+                            <p className="text-2xl font-bold text-brand-900 mt-1">
+                              {bids.filter(b => b.needId === need.id).length}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-white border border-brand-100 p-3">
+                            <p className="text-xs font-semibold text-slate-600">Rango de Precios</p>
+                            {selectedNeedBudgetRange && need.id === selectedNeedId ? (
+                              <p className="text-sm font-bold text-brand-900 mt-1">
+                                ${selectedNeedBudgetRange.min.toFixed(2)} - ${selectedNeedBudgetRange.max.toFixed(2)}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-slate-500 mt-1">-</p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Postulations for this need */}
+                        <div>
+                          <p className="font-semibold text-sm text-slate-700 mb-3">Postulaciones Recibidas</p>
+                          <div className="space-y-2 max-h-64 overflow-auto">
+                            {bids.filter(b => b.needId === need.id).length === 0 ? (
+                              <p className="text-xs text-slate-500 bg-white rounded-lg p-3">Aún sin postulaciones.</p>
+                            ) : (
+                              bids.filter(b => b.needId === need.id).map((bid) => (
+                                <div key={bid.id} className="rounded-lg border border-brand-100 bg-white p-3 text-sm">
+                                  <div className="flex items-start justify-between gap-2 mb-2">
+                                    <div>
+                                      <p className="font-bold text-slate-900">Técnico #{bid.id.slice(0, 8)}</p>
+                                      <p className="text-xs text-slate-500 mt-1">{new Date(bid.createdAt).toLocaleString()}</p>
+                                    </div>
+                                    <p className="font-bold text-brand-900 text-lg">${Number(bid.laborCost).toFixed(2)}</p>
+                                  </div>
+                                  <p className="text-xs text-slate-700 mb-3">📝 {bid.summary}</p>
+                                  {need.status === "OPEN" && (
+                                    <button
+                                      onClick={() => onSelectBid(bid.id)}
+                                      disabled={busy}
+                                      className="w-full rounded-lg bg-brand-900 px-2 py-1.5 text-xs font-bold text-white hover:bg-brand-800 transition disabled:opacity-60"
+                                    >
+                                      ✅ Seleccionar Esta Postulación
+                                    </button>
+                                  )}
+                                  {need.status === "ASSIGNED" && need.selectedBidId === bid.id && (
+                                    <p className="text-xs font-bold text-emerald-700 bg-emerald-50 rounded px-2 py-1">
+                                      ✓ Postulación Seleccionada y Activa
+                                    </p>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+            )}
+          </div>
+        )}
+
+        {/* WORKER: OPEN TAB - Find Opportunities */}
+        {role === "WORKER" && activeTab === "OPEN" && (
+          <div className="grid gap-4 lg:grid-cols-3">
+            {/* Opportunities list */}
+            <div className="lg:col-span-2 space-y-3">
+              <h2 className="font-bold text-lg">🔍 Oportunidades Disponibles para Ofertar</h2>
+              {needs.filter(n => n.status === "OPEN").length === 0 ? (
+                <div className="rounded-lg border border-brand-100 bg-white p-6 text-center">
+                  <p className="text-slate-600">No hay oportunidades disponibles en este momento.</p>
+                </div>
+              ) : (
+                needs.filter(n => n.status === "OPEN").map((need) => (
+                  <div
+                    key={need.id}
+                    onClick={() => setSelectedNeedId(need.id)}
+                    className={`rounded-lg border-2 p-4 cursor-pointer transition ${
+                      selectedNeedId === need.id
+                        ? "border-brand-900 bg-brand-50"
+                        : "border-brand-100 bg-white hover:border-brand-200"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex-1">
+                        <h3 className="font-bold text-slate-900 text-lg">{need.title}</h3>
+                        <p className="text-xs text-slate-500 mt-1">{need.category}</p>
+                      </div>
+                      <p className="text-xs font-semibold rounded-full bg-slate-100 px-2 py-1 whitespace-nowrap">
+                        {bids.filter(b => b.needId === need.id).length} postulaciones
+                      </p>
+                    </div>
+                    <p className="text-sm text-slate-700 line-clamp-2">{need.description.split('\n')[0]}</p>
+                    <p className="text-xs text-slate-500 mt-2">
+                      #{need.id.slice(0, 8)} · ⏰ {getNeedRemainingDays(need.createdAt)} días restantes
+                    </p>
+                  </div>
+                ))
               )}
-              {selectedNeed?.status === "ASSIGNED" && selectedNeed.selectedBidId === bid.id && (
-                <p className="mt-2 inline-block rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700">Propuesta asignada</p>
-              )}
-            </article>
-          ))}
-          {bids.length === 0 && (
-            <p className="rounded-xl border border-brand-100 bg-white p-4 text-sm">
-              {selectedNeedId ? "Sin propuestas cargadas para esta necesidad." : "Selecciona una necesidad para ver propuestas."}
-            </p>
-          )}
-        </div>
-      </div>}
+            </div>
+
+            {/* Bid submission form */}
+            {selectedNeed && (
+              <div className="rounded-lg border border-brand-100 bg-white p-4 h-fit sticky top-4 shadow-md">
+                <h3 className="font-bold text-lg">{selectedNeed.title}</h3>
+                <p className="text-xs text-slate-500 mb-4">{selectedNeed.category}</p>
+                
+                <div className="bg-brand-50 rounded-lg p-3 mb-4 text-sm">
+                  <p className="text-xs font-semibold text-slate-600">📋 Descripción</p>
+                  <p className="text-xs text-slate-700 mt-2 line-clamp-4">{selectedNeed.description}</p>
+                </div>
+
+                {selectedWorkerStatus && (
+                  <div className={`rounded-lg px-3 py-2 mb-4 text-xs font-semibold text-center ${
+                    selectedWorkerStatus === "Aceptada"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : selectedWorkerStatus === "Rechazada"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-amber-100 text-amber-800"
+                  }`}>
+                    {selectedWorkerStatus}
+                  </div>
+                )}
+
+                {!workerBidOnSelected && selectedNeed.status === "OPEN" && (
+                  <>
+                    <div className="space-y-3 mb-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">💰 Precio de Mano de Obra ($)</label>
+                        <input
+                          type="number"
+                          value={costInput}
+                          onChange={(event) => setCostInput(event.target.value)}
+                          className="w-full rounded-lg border border-brand-200 px-3 py-2 text-sm"
+                          placeholder="Ej: 150.50"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">📝 Tu Propuesta</label>
+                        <textarea
+                          value={summaryInput}
+                          onChange={(event) => setSummaryInput(event.target.value)}
+                          className="w-full rounded-lg border border-brand-200 px-3 py-2 text-sm min-h-20"
+                          placeholder="Por qué eres el indicado, metodología, materiales, disponibilidad..."
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={onSubmitBid}
+                      disabled={busy}
+                      className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700 transition disabled:opacity-60"
+                    >
+                      {busy ? "⏳ Enviando..." : "✅ Enviar Postulación"}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* WORKER: TRACKING TAB */}
+        {role === "WORKER" && activeTab === "TRACKING" && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {[
+                { id: "TODAS", label: "Todas", count: workerTracking.length },
+                { id: "EN_REVISION", label: "En revisión", count: workerTracking.filter(t => t.status === "EN_REVISION").length },
+                { id: "ACEPTADA", label: "Aceptadas", count: workerTracking.filter(t => t.status === "ACEPTADA").length },
+                { id: "RECHAZADA", label: "Rechazadas", count: workerTracking.filter(t => t.status === "RECHAZADA").length }
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setTrackingFilter(item.id as "TODAS" | "EN_REVISION" | "ACEPTADA" | "RECHAZADA")}
+                  className={
+                    "rounded-full px-3 py-1.5 text-xs font-bold transition " +
+                    (trackingFilter === item.id ? "bg-brand-900 text-white" : "bg-brand-50 text-brand-900 hover:bg-brand-100")
+                  }
+                >
+                  {item.label} ({item.count})
+                </button>
+              ))}
+              <select
+                value={trackingSort}
+                onChange={(event) => setTrackingSort(event.target.value as "NEWEST" | "OLDEST")}
+                className="rounded-full border border-brand-100 bg-white px-3 py-1.5 text-xs font-bold text-brand-900"
+              >
+                <option value="NEWEST">Más recientes</option>
+                <option value="OLDEST">Más antiguas</option>
+              </select>
+            </div>
+
+            {trackingBusy ? (
+              <p className="text-center py-8 text-slate-600">⏳ Actualizando seguimiento...</p>
+            ) : workerTracking.length === 0 ? (
+              <div className="rounded-lg border border-brand-100 bg-brand-50 p-6 text-center">
+                <p className="text-brand-900 font-semibold">📭 Aún no has enviado postulaciones.</p>
+                <button
+                  onClick={() => setActiveTab("OPEN")}
+                  className="mt-3 rounded-lg bg-brand-900 px-4 py-2 text-sm font-bold text-white hover:bg-brand-800 transition"
+                >
+                  🔍 Ver Oportunidades Disponibles
+                </button>
+              </div>
+            ) : filteredWorkerTracking.length === 0 ? (
+              <p className="rounded-lg border border-brand-100 bg-brand-50 px-4 py-3 text-center text-brand-900">
+                No hay postulaciones para el filtro seleccionado.
+              </p>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {filteredWorkerTracking.map((track) => (
+                  <div key={track.bidId} className="rounded-lg border border-brand-100 bg-white p-4 shadow-sm hover:shadow-md transition">
+                    <div className="mb-3">
+                      <h4 className="font-bold text-slate-900">{track.needTitle}</h4>
+                      <p className="text-xs text-slate-500 mt-1">#{track.bidId.slice(0, 8)}</p>
+                    </div>
+                    <div className="space-y-2 text-sm mb-3">
+                      <p><span className="text-slate-600">💰 Precio:</span> <strong className="text-brand-900">${Number(track.laborCost).toFixed(2)}</strong></p>
+                      <p className="text-xs text-slate-500">📅 {new Date(track.createdAt).toLocaleString()}</p>
+                    </div>
+                    <div className={`inline-block rounded-full px-3 py-1 text-xs font-bold ${
+                      track.status === "EN_REVISION"
+                        ? "bg-amber-100 text-amber-800"
+                        : track.status === "ACEPTADA"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-red-100 text-red-700"
+                    }`}>
+                      {track.status === "EN_REVISION" ? "⏱️ En revisión" : track.status === "ACEPTADA" ? "✅ Aceptada" : "❌ Rechazada"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );

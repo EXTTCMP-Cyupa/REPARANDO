@@ -2,6 +2,7 @@ package com.reparando.platform.infrastructure.adapter.in.web;
 
 import com.reparando.platform.domain.model.WorkMaterial;
 import com.reparando.platform.domain.port.in.WorkWorkflowUseCase;
+import com.reparando.platform.infrastructure.config.JwtPrincipal;
 import com.reparando.platform.infrastructure.config.JwtService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,12 +18,17 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.mockAuthentication;
+
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 @WebFluxTest(
     controllers = WorkWorkflowController.class,
@@ -75,7 +81,7 @@ class WorkWorkflowControllerTest {
             }
             """;
 
-        webTestClient.post()
+        webTestClient.mutateWith(workerAuthentication()).post()
             .uri("/api/v1/workflow/{workOrderId}/materials", workOrderId)
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(body)
@@ -110,7 +116,7 @@ class WorkWorkflowControllerTest {
             }
             """;
 
-        webTestClient.post()
+        webTestClient.mutateWith(workerAuthentication()).post()
             .uri("/api/v1/workflow/{workOrderId}/materials", workOrderId)
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(body)
@@ -133,7 +139,7 @@ class WorkWorkflowControllerTest {
             }
             """;
 
-        webTestClient.post()
+        webTestClient.mutateWith(workerAuthentication()).post()
             .uri("/api/v1/workflow/{workOrderId}/materials", workOrderId)
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(body)
@@ -156,7 +162,7 @@ class WorkWorkflowControllerTest {
             }
             """;
 
-        webTestClient.post()
+        webTestClient.mutateWith(workerAuthentication()).post()
             .uri("/api/v1/workflow/{workOrderId}/materials", workOrderId)
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(body)
@@ -194,5 +200,19 @@ class WorkWorkflowControllerTest {
             .jsonPath("$[0].unitCost").isEqualTo(0.50);
 
         verify(workWorkflowUseCase).listMaterials(workOrderId);
+    }
+
+    private static org.springframework.test.web.reactive.server.WebTestClientConfigurer workerAuthentication() {
+        JwtPrincipal principal = new JwtPrincipal(
+            UUID.fromString("11111111-1111-1111-1111-111111111111"),
+            "worker@reparando.app",
+            "WORKER"
+        );
+        UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+            principal,
+            null,
+            List.of(new SimpleGrantedAuthority("ROLE_WORKER"))
+        );
+        return mockAuthentication(authentication);
     }
 }

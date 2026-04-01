@@ -109,6 +109,7 @@ public class FinancialPersistenceAdapter implements WorkerAccountRepositoryPort,
         return depositRepo.findByWorkerIdOrderByCreatedAtDesc(workerId).map(this::toDomain);
     }
 
+
     private WorkerAccountEntity toEntity(WorkerAccount source) {
         return new WorkerAccountEntity(
             source.id(),
@@ -141,4 +142,5 @@ public class FinancialPersistenceAdapter implements WorkerAccountRepositoryPort,
             source.reviewedBy()
         );
     }
+
 }

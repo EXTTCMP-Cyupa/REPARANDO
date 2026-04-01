@@ -27,10 +27,12 @@ public record WorkOrder(
 
     public WorkOrder moveTo(WorkStatus newStatus) {
         Set<WorkStatus> allowed = switch (status) {
-            case DIAGNOSTICO -> Set.of(WorkStatus.COTIZADO);
-            case COTIZADO -> Set.of(WorkStatus.EN_PROCESO);
-            case EN_PROCESO -> Set.of(WorkStatus.FINALIZADO);
-            case FINALIZADO -> Set.of();
+            case DIAGNOSTICO -> Set.of(WorkStatus.COTIZADO, WorkStatus.CANCELADO);
+            case COTIZADO -> Set.of(WorkStatus.EN_PROCESO, WorkStatus.CANCELADO);
+            case EN_PROCESO -> Set.of(WorkStatus.PAUSADO, WorkStatus.EN_DISPUTA, WorkStatus.FINALIZADO, WorkStatus.CANCELADO);
+            case PAUSADO -> Set.of(WorkStatus.EN_PROCESO, WorkStatus.CANCELADO);
+            case EN_DISPUTA -> Set.of(WorkStatus.EN_PROCESO, WorkStatus.CANCELADO);
+            case FINALIZADO, CANCELADO -> Set.of();
         };
 
         if (!allowed.contains(newStatus)) {

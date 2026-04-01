@@ -56,15 +56,15 @@ class FinancialFlowE2ETest {
         String workerToken = "Bearer " + login("worker@reparando.app", "123456").accessToken();
         String adminToken = "Bearer " + login("admin@reparando.app", "123456").accessToken();
 
-        WorkerAccountResponse firstCharge = chargeLead(workerToken);
+        WorkerAccountResponse firstCharge = chargeLead(adminToken);
         assertThat(firstCharge.blocked()).isFalse();
         assertThat(firstCharge.balance()).isEqualByComparingTo(new BigDecimal("-1.50"));
 
-        WorkerAccountResponse secondCharge = chargeLead(workerToken);
+        WorkerAccountResponse secondCharge = chargeLead(adminToken);
         assertThat(secondCharge.blocked()).isTrue();
         assertThat(secondCharge.balance()).isEqualByComparingTo(new BigDecimal("-3.00"));
 
-        ApiErrorResponse blockedError = chargeLeadExpectConflict(workerToken);
+        ApiErrorResponse blockedError = chargeLeadExpectConflict(adminToken);
         assertThat(blockedError.code()).isEqualTo("CONFLICT");
         assertThat(blockedError.message()).contains("blocked");
 
@@ -154,6 +154,61 @@ class FinancialFlowE2ETest {
         assertThat(accountAfterApproval).isNotNull();
         assertThat(accountAfterApproval.balance()).isEqualByComparingTo(new BigDecimal("-1.00"));
         assertThat(accountAfterApproval.blocked()).isFalse();
+
+        List<LedgerEntryResponse> workerLedger = webTestClient.get()
+            .uri("/api/v1/finance/workers/{workerId}/ledger", WORKER_ID)
+            .header("Authorization", workerToken)
+            .exchange()
+            .expectStatus().isOk()
+            .expectBodyList(LedgerEntryResponse.class)
+            .returnResult()
+            .getResponseBody();
+
+        assertThat(workerLedger).isNotNull();
+        assertThat(workerLedger).extracting(LedgerEntryResponse::entryType).contains("LEAD_CHARGE", "DEPOSIT_APPROVED");
+
+        String adjustmentBody = """
+            {
+              "workerId": "11111111-1111-1111-1111-111111111111",
+              "amount": -0.50,
+              "reason": "Correccion administrativa",
+              "adminId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            }
+            """;
+
+        LedgerEntryResponse adjustment = webTestClient.post()
+            .uri("/api/v1/finance/ledger/adjustments")
+            .header("Authorization", adminToken)
+            .bodyValue(adjustmentBody)
+            .exchange()
+            .expectStatus().isCreated()
+            .expectBody(LedgerEntryResponse.class)
+            .returnResult()
+            .getResponseBody();
+
+        assertThat(adjustment).isNotNull();
+        assertThat(adjustment.entryType()).isEqualTo("ADJUSTMENT_DEBIT");
+
+        String refundBody = """
+            {
+              "reason": "Reversion del ajuste",
+              "adminId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            }
+            """;
+
+        LedgerEntryResponse refund = webTestClient.post()
+            .uri("/api/v1/finance/ledger/{entryId}/refund", adjustment.id())
+            .header("Authorization", adminToken)
+            .bodyValue(refundBody)
+            .exchange()
+            .expectStatus().isCreated()
+            .expectBody(LedgerEntryResponse.class)
+            .returnResult()
+            .getResponseBody();
+
+        assertThat(refund).isNotNull();
+        assertThat(refund.entryType()).isEqualTo("REFUND");
+        assertThat(refund.referenceEntryId()).isEqualTo(adjustment.id());
     }
 
     private WorkerAccountResponse chargeLead(String authHeader) {
@@ -244,6 +299,19 @@ class FinancialFlowE2ETest {
         String status,
         String createdAt,
         UUID reviewedBy
+    ) {
+    }
+
+    private record LedgerEntryResponse(
+        UUID id,
+        UUID workerId,
+        String entryType,
+        BigDecimal amount,
+        String description,
+        UUID referenceEntryId,
+        String externalReference,
+        String createdAt,
+        UUID createdBy
     ) {
     }
 

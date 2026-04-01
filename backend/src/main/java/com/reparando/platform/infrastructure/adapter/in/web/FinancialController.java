@@ -1,6 +1,7 @@
 package com.reparando.platform.infrastructure.adapter.in.web;
 
 import com.reparando.platform.domain.model.DepositReceipt;
+import com.reparando.platform.domain.model.LedgerEntry;
 import com.reparando.platform.domain.model.PaymentMethod;
 import com.reparando.platform.domain.model.WorkerAccount;
 import com.reparando.platform.domain.port.in.FinancialManagementUseCase;
@@ -34,36 +35,70 @@ public class FinancialController {
     @GetMapping("/workers/{workerId}/account")
     @ResponseStatus(HttpStatus.OK)
     public Mono<WorkerAccount> getWorkerAccount(@PathVariable UUID workerId) {
-        return financialManagementUseCase.getWorkerAccount(workerId);
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, workerId)
+                .then(financialManagementUseCase.getWorkerAccount(workerId))
+            );
     }
 
     @PostMapping("/lead/charge")
     @ResponseStatus(HttpStatus.OK)
     public Mono<WorkerAccount> chargeLead(@RequestBody ChargeLeadRequest request) {
-        return financialManagementUseCase.chargeLead(request.workerId(), request.clientId(), request.source());
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> {
+                if (!CurrentUserContext.isAdmin(currentUser)) {
+                    return Mono.error(new IllegalArgumentException("Only admins can manually charge leads"));
+                }
+                return financialManagementUseCase.chargeLead(request.workerId(), request.clientId(), request.source());
+            });
     }
 
     @PostMapping("/deposit")
     @ResponseStatus(HttpStatus.CREATED)
     public Mono<DepositReceipt> submitDeposit(@RequestBody DepositRequest request) {
-        return financialManagementUseCase.submitDepositReceipt(
-            request.workerId(),
-            request.amount(),
-            request.paymentMethod(),
-            request.imagePath()
-        );
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> {
+                UUID effectiveWorkerId = request.workerId() == null ? currentUser.userId() : request.workerId();
+                return CurrentUserContext.requireSelfOrAdmin(currentUser, effectiveWorkerId)
+                    .then(financialManagementUseCase.submitDepositReceipt(
+                        effectiveWorkerId,
+                        request.amount(),
+                        request.paymentMethod(),
+                        request.imagePath()
+                    ));
+            });
     }
 
     @PostMapping("/deposit/{depositId}/approve")
     @ResponseStatus(HttpStatus.OK)
     public Mono<DepositReceipt> approveDeposit(@PathVariable UUID depositId, @RequestBody ApproveDepositRequest request) {
-        return financialManagementUseCase.approveDeposit(depositId, request.adminId());
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> {
+                if (!CurrentUserContext.isAdmin(currentUser)) {
+                    return Mono.error(new IllegalArgumentException("Only admins can approve deposits"));
+                }
+                UUID effectiveAdminId = request.adminId() == null ? currentUser.userId() : request.adminId();
+                if (!effectiveAdminId.equals(currentUser.userId())) {
+                    return Mono.error(new IllegalArgumentException("Admin ID does not match authenticated user"));
+                }
+                return financialManagementUseCase.approveDeposit(depositId, effectiveAdminId);
+            });
     }
 
     @PostMapping("/deposit/{depositId}/reject")
     @ResponseStatus(HttpStatus.OK)
     public Mono<DepositReceipt> rejectDeposit(@PathVariable UUID depositId, @RequestBody ApproveDepositRequest request) {
-        return financialManagementUseCase.rejectDeposit(depositId, request.adminId());
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> {
+                if (!CurrentUserContext.isAdmin(currentUser)) {
+                    return Mono.error(new IllegalArgumentException("Only admins can reject deposits"));
+                }
+                UUID effectiveAdminId = request.adminId() == null ? currentUser.userId() : request.adminId();
+                if (!effectiveAdminId.equals(currentUser.userId())) {
+                    return Mono.error(new IllegalArgumentException("Admin ID does not match authenticated user"));
+                }
+                return financialManagementUseCase.rejectDeposit(depositId, effectiveAdminId);
+            });
     }
 
     @GetMapping("/deposit/pending")
@@ -75,7 +110,56 @@ public class FinancialController {
     @GetMapping("/workers/{workerId}/deposits")
     @ResponseStatus(HttpStatus.OK)
     public Flux<DepositReceipt> listWorkerDeposits(@PathVariable UUID workerId) {
-        return financialManagementUseCase.listWorkerDeposits(workerId);
+        return CurrentUserContext.require()
+            .flatMapMany(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, workerId)
+                .thenMany(financialManagementUseCase.listWorkerDeposits(workerId))
+            );
+    }
+
+    @GetMapping("/workers/{workerId}/ledger")
+    @ResponseStatus(HttpStatus.OK)
+    public Flux<LedgerEntry> listWorkerLedger(@PathVariable UUID workerId) {
+        return CurrentUserContext.require()
+            .flatMapMany(currentUser -> CurrentUserContext.requireSelfOrAdmin(currentUser, workerId)
+                .thenMany(financialManagementUseCase.listWorkerLedger(workerId))
+            );
+    }
+
+    @PostMapping("/ledger/adjustments")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Mono<LedgerEntry> createAdjustment(@RequestBody AdjustmentRequest request) {
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> {
+                if (!CurrentUserContext.isAdmin(currentUser)) {
+                    return Mono.error(new IllegalArgumentException("Only admins can create adjustments"));
+                }
+                UUID effectiveAdminId = request.adminId() == null ? currentUser.userId() : request.adminId();
+                if (!effectiveAdminId.equals(currentUser.userId())) {
+                    return Mono.error(new IllegalArgumentException("Admin ID does not match authenticated user"));
+                }
+                return financialManagementUseCase.createAdjustment(
+                    request.workerId(),
+                    request.amount(),
+                    request.reason(),
+                    effectiveAdminId
+                );
+            });
+    }
+
+    @PostMapping("/ledger/{entryId}/refund")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Mono<LedgerEntry> refundLedgerEntry(@PathVariable UUID entryId, @RequestBody RefundRequest request) {
+        return CurrentUserContext.require()
+            .flatMap(currentUser -> {
+                if (!CurrentUserContext.isAdmin(currentUser)) {
+                    return Mono.error(new IllegalArgumentException("Only admins can issue refunds"));
+                }
+                UUID effectiveAdminId = request.adminId() == null ? currentUser.userId() : request.adminId();
+                if (!effectiveAdminId.equals(currentUser.userId())) {
+                    return Mono.error(new IllegalArgumentException("Admin ID does not match authenticated user"));
+                }
+                return financialManagementUseCase.refundLedgerEntry(entryId, request.reason(), effectiveAdminId);
+            });
     }
 
     @PostMapping("/deposit/upload")
@@ -105,7 +189,7 @@ public class FinancialController {
     }
 
     public record DepositRequest(
-        @NotNull UUID workerId,
+        UUID workerId,
         @NotNull @DecimalMin(value = "0.01") BigDecimal amount,
         @NotNull PaymentMethod paymentMethod,
         @NotBlank String imagePath
@@ -113,7 +197,21 @@ public class FinancialController {
     }
 
     public record ApproveDepositRequest(
-        @NotNull UUID adminId
+        UUID adminId
+    ) {
+    }
+
+    public record AdjustmentRequest(
+        @NotNull UUID workerId,
+        @NotNull BigDecimal amount,
+        @NotBlank String reason,
+        UUID adminId
+    ) {
+    }
+
+    public record RefundRequest(
+        String reason,
+        UUID adminId
     ) {
     }
 
