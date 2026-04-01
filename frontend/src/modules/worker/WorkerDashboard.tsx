@@ -1,4 +1,4 @@
-import { AlertTriangle, Home, MapPin, ShieldAlert, UserRound, Wrench } from "lucide-react";
+import { AlertTriangle, Home, MapPin, ShieldAlert, UserRound, Wrench, HelpCircle, Info } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   getBusinessPolicy,
@@ -12,6 +12,7 @@ import { DiagnosticView } from "./DiagnosticView";
 import { QuotationView } from "./QuotationView";
 import { WorkNoteView } from "./WorkNoteView";
 import { CompletionView } from "./CompletionView";
+import { HelpTooltip, InfoBox } from "../../components/HelpTooltip";
 
 type WorkerWorkOrder = {
   id: string;
@@ -48,6 +49,13 @@ const flowSteps: Array<WorkerWorkOrder["status"]> = ["DIAGNOSTICO", "COTIZADO", 
 function ProgressStepper({ status }: { status: WorkerWorkOrder["status"] }) {
   const currentIndex = flowSteps.findIndex((step) => step === status);
 
+  const statusDescriptions: Record<WorkerWorkOrder["status"], string> = {
+    DIAGNOSTICO: "Revisando el problema",
+    COTIZADO: "Esperando aprobación de precio",
+    EN_PROCESO: "Realizando el trabajo",
+    FINALIZADO: "Trabajo completo"
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -60,6 +68,7 @@ function ProgressStepper({ status }: { status: WorkerWorkOrder["status"] }) {
                   "inline-flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-extrabold " +
                   (done ? "border-brand-700 bg-brand-700 text-white" : "border-slate-300 bg-white text-slate-500")
                 }
+                title={`Paso ${index + 1}: ${statusDescriptions[step]}`}
               >
                 {index + 1}
               </span>
@@ -71,10 +80,10 @@ function ProgressStepper({ status }: { status: WorkerWorkOrder["status"] }) {
         })}
       </div>
       <div className="grid grid-cols-4 text-[11px] font-semibold text-slate-600">
-        <span>Diagnóstico</span>
-        <span>Cotización</span>
-        <span>En Proceso</span>
-        <span>Finalizado</span>
+        <span title="Evaluación inicial del problema">Paso 1</span>
+        <span title="Envío de presupuesto">Paso 2</span>
+        <span title="Realización de trabajo">Paso 3</span>
+        <span title="Entrega y cierre">Paso 4</span>
       </div>
     </div>
   );
@@ -173,7 +182,7 @@ export function WorkerDashboard() {
 
     const existingStatus = bidStatusByNeed[need.id];
     if (existingStatus?.tone === "pending") {
-      setNeedActionMessage("Ya te postulaste a esta oferta. Está pendiente de aceptación del cliente.");
+      setNeedActionMessage("✓ Ya postulaste a esta oferta. Espera que el cliente la revise y te contacte en los próximos días.");
       return;
     }
 
@@ -181,12 +190,12 @@ export function WorkerDashboard() {
     const summary = (summaryByNeed[need.id] ?? "").trim();
 
     if (!Number.isFinite(laborCost) || laborCost <= 0) {
-      setNeedActionMessage("Ingresa cuánto cobrarías para postular.");
+      setNeedActionMessage("⚠️ Ingresa el precio que cobrarías para poder postular.");
       return;
     }
 
     if (!summary) {
-      setNeedActionMessage("Escribe un resumen corto de tu propuesta.");
+      setNeedActionMessage("⚠️ Escribe una propuesta breve (qué harías, cuánto subirá) para que el cliente te entienda.");
       return;
     }
 
@@ -203,12 +212,12 @@ export function WorkerDashboard() {
         session.accessToken
       );
 
-      setNeedActionMessage("Postulación enviada correctamente.");
+      setNeedActionMessage("✅ Postulación enviada. El cliente la revisará pronto.");
       setBidStatusByNeed((current) => ({
         ...current,
         [need.id]: {
           tone: "pending",
-          message: "Postulación enviada · Pendiente de aceptación"
+          message: "Esperando que el cliente revise tu propuesta..."
         }
       }));
       setCostByNeed((current) => ({ ...current, [need.id]: "" }));
@@ -216,7 +225,7 @@ export function WorkerDashboard() {
       refreshNeeds();
     } catch (error) {
       if (error instanceof Error) {
-        setNeedActionMessage(error.message);
+        setNeedActionMessage(`❌ Error: ${error.message}`);
         setBidStatusByNeed((current) => ({
           ...current,
           [need.id]: {
@@ -225,12 +234,12 @@ export function WorkerDashboard() {
           }
         }));
       } else {
-        setNeedActionMessage("No fue posible postular al trabajo.");
+        setNeedActionMessage("❌ No se pudo enviar tu postulación. Intenta de nuevo.");
         setBidStatusByNeed((current) => ({
           ...current,
           [need.id]: {
             tone: "error",
-            message: "No fue posible enviar la postulación"
+            message: "Error al postular"
           }
         }));
       }
@@ -305,20 +314,23 @@ export function WorkerDashboard() {
           </div>
 
           <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold uppercase text-slate-500">Current Balance</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold uppercase text-slate-500">Tu Saldo de Crédito</p>
+              <HelpTooltip text="Cada trabajo que postulas descuenta crédito de tu saldo. Si baja bajo el límite, no podrás postular más." />
+            </div>
             <p className={"mt-1 text-3xl font-extrabold " + (isNegativeBalance ? "text-red-600" : "text-emerald-600")}>
               {balance === null ? "--" : `$ ${balance.toFixed(2)}`}
             </p>
             <p className="mt-1 text-xs text-slate-500">Límite permitido: ${policy.trustCreditLimit.toFixed(2)}</p>
             {blocked === true && (
-              <p className="mt-2 inline-flex items-center gap-1 rounded-lg bg-red-100 px-2 py-1 text-xs font-bold text-red-700">
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-red-100 px-3 py-1.5 text-xs font-bold text-red-700">
                 <ShieldAlert size={14} />
-                Cuenta bloqueada por saldo
+                Cuenta bloqueada por bajo saldo
               </p>
             )}
             {blocked === false && (
-              <p className="mt-2 inline-flex items-center gap-1 rounded-lg bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700">
-                Cuenta habilitada
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-100 px-3 py-1.5 text-xs font-bold text-emerald-700">
+                ✓ Cuenta habilitada
               </p>
             )}
           </div>
@@ -327,22 +339,26 @@ export function WorkerDashboard() {
         {accountError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{accountError}</p>}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-bold text-slate-900">Muro de Ofertas (Licitación)</p>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-slate-900">Ofertas Disponibles para Postularse</p>
+              <p className="text-xs text-slate-500">Licitaciones de clientes que buscan tu ayuda</p>
+            </div>
             <button
               onClick={refreshNeeds}
               disabled={needsLoading}
               className="rounded-lg bg-brand-100 px-2 py-1 text-xs font-bold text-brand-900 disabled:opacity-60"
+              title="Cargar últimas ofertas disponibles"
             >
               {needsLoading ? "..." : "Actualizar"}
             </button>
           </div>
 
           {!canApplyJobs && (
-            <p className="mb-2 inline-flex items-center gap-1 rounded-lg bg-amber-100 px-2 py-1 text-xs font-bold text-amber-800">
-              <AlertTriangle size={13} />
-              Saldo menor al límite, no puedes postular hasta recargar.
-            </p>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 text-xs font-bold text-amber-800">
+              <AlertTriangle size={14} />
+              Tu saldo es muy bajo. Recarga crédito para poder postular.
+            </div>
           )}
 
           <div className="mb-2 grid grid-cols-2 gap-2 text-xs">
@@ -415,17 +431,26 @@ export function WorkerDashboard() {
 
       <article className="card space-y-4">
         <div className="flex items-center justify-between">
-          <p className="text-lg font-extrabold text-slate-900">Trabajos Activos</p>
+          <div>
+            <p className="text-lg font-extrabold text-slate-900">Mis Trabajos que Están en Progreso</p>
+            <p className="text-xs text-slate-500">Sigue el estado de cada trabajo desde inicio hasta finalización.</p>
+          </div>
           <button
             onClick={refreshOrders}
             disabled={ordersLoading}
             className="rounded-lg bg-brand-100 px-3 py-2 text-xs font-bold text-brand-900 disabled:opacity-60"
+            title="Recargar datos de trabajos"
           >
-            {ordersLoading ? "Actualizando..." : "Actualizar trabajos"}
+            {ordersLoading ? "Actualizando..." : "Actualizar"}
           </button>
         </div>
 
-        {ordersError && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{ordersError}</p>}
+        {ordersError && (
+          <div className="rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 border border-red-200 flex items-center gap-2">
+            <AlertTriangle size={16} />
+            No se pudieron cargar tus trabajos. Intenta actualizar.
+          </div>
+        )}
 
         <div className="grid gap-3 lg:grid-cols-[320px_minmax(0,1fr)]">
           <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -463,20 +488,22 @@ export function WorkerDashboard() {
 
                 <div className="mb-4 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
                   {[
-                    { id: "diagnostic", label: "Diagnóstico" },
-                    { id: "quotation", label: "Cotización" },
-                    { id: "work-note", label: "Nota" },
-                    { id: "completion", label: "Finalizar" }
+                    { id: "diagnostic", label: "Paso 1: Revisar", desc: "Inspecciona el problema" },
+                    { id: "quotation", label: "Paso 2: Presupuestar", desc: "Envía precio" },
+                    { id: "work-note", label: "Paso 3: Trabajo", desc: "Registra avances" },
+                    { id: "completion", label: "Paso 4: Entregar", desc: "Finaliza" }
                   ].map((tab) => (
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id as "diagnostic" | "quotation" | "work-note" | "completion")}
                       className={
-                        "rounded-full px-3 py-1.5 text-xs font-bold transition " +
+                        "rounded-lg px-3 py-2 text-xs font-bold transition flex flex-col items-start " +
                         (activeTab === tab.id ? "bg-brand-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200")
                       }
+                      title={tab.desc}
                     >
-                      {tab.label}
+                      <span>{tab.label}</span>
+                      <span className="text-[10px] opacity-70">{tab.desc}</span>
                     </button>
                   ))}
                 </div>
@@ -549,9 +576,11 @@ export function WorkerDashboard() {
         </div>
 
         {activeOrders.length > 0 && (
-          <p className="text-xs text-slate-500">
-            Flujo activo: lead (${policy.leadCost.toFixed(2)}) descontado al ser seleccionado. Si tu saldo cae por debajo de ${policy.trustCreditLimit.toFixed(2)}, la postulación se bloquea.
-          </p>
+          <InfoBox 
+            title="¿Cómo funciona el sistema de crédito?"
+            text={`Cada postulación te cuesta $${policy.leadCost.toFixed(2)}. Si tu saldo baja de $${policy.trustCreditLimit.toFixed(2)}, no podrás postular. Recarga crédito desde la sección de Finanzas → Depósitos.`}
+            variant="info"
+          />
         )}
       </article>
     </section>

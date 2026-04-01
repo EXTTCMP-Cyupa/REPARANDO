@@ -1,4 +1,4 @@
-import { CircleDollarSign } from "lucide-react";
+import { CircleDollarSign, TrendingUp, AlertTriangle } from "lucide-react";
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -9,6 +9,7 @@ import {
   submitDepositReceipt,
   uploadDepositReceiptImage
 } from "../../lib/api";
+import { HelpTooltip, InfoBox } from "../../components/HelpTooltip";
 
 type WorkerWorkOrder = {
   id: string;
@@ -207,28 +208,48 @@ export function WorkerFinanceView() {
   return (
     <section className="grid gap-4">
       <article className="card">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-lg font-extrabold text-slate-900">Finanzas del Trabajador</p>
-            <p className="text-xs text-slate-600">Controla depósitos, créditos y rendimiento económico.</p>
+            <p className="text-lg font-extrabold text-slate-900">⚡ Tu Dashboard Financiero</p>
+            <p className="text-xs text-slate-600">Ver tu saldo, ingresos, depósitos y créditos disponibles para postular.</p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => refreshFinance({ silent: false })}
               disabled={loading}
-              className="rounded-lg bg-brand-100 px-3 py-1 text-xs font-bold text-brand-900 disabled:opacity-60"
+              className="rounded-lg bg-brand-100 px-3 py-2 text-xs font-bold text-brand-900 disabled:opacity-60"
+              title="Recargar todos los datos financieros"
             >
               {loading ? "Actualizando..." : "Actualizar"}
             </button>
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
-              <CircleDollarSign size={14} />
-              Balance: {balance === null ? "--" : `$ ${balance.toFixed(2)}`}
-            </span>
-            <span className={"inline-flex items-center rounded-full px-3 py-1 text-xs font-bold " + (lowCredits ? "bg-amber-100 text-amber-800" : "bg-brand-100 text-brand-900")}>
-              Créditos aprox: {availableCredits}
-            </span>
           </div>
         </div>
+        
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50 p-3">
+            <p className="text-xs font-semibold uppercase text-emerald-600">Tu Saldo Actual</p>
+            <p className="mt-1 text-2xl font-extrabold text-emerald-900">{balance === null ? "--" : `$ ${balance.toFixed(2)}`}</p>
+            {balance !== null && balance < 0 && <p className="mt-1 text-xs text-red-700">⚠️ Saldo negativo</p>}
+          </div>
+          <div className="rounded-lg border-2 border-brand-200 bg-brand-50 p-3">
+            <p className="text-xs font-semibold uppercase text-brand-600">Créditos para Postular</p>
+            <p className={("mt-1 text-2xl font-extrabold " + (lowCredits ? "text-amber-700" : "text-brand-900"))}>{availableCredits}</p>
+            <p className="mt-1 text-xs text-slate-600">Costo por postulación: ${policy.leadCost.toFixed(2)}</p>
+          </div>
+          <div className="rounded-lg border-2 border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase text-slate-600">Piso Mínimo Permitido</p>
+            <p className="mt-1 text-2xl font-extrabold text-slate-900">${policy.trustCreditLimit.toFixed(2)}</p>
+            <p className="mt-1 text-xs text-slate-600">No puedes bajar de aquí</p>
+          </div>
+        </div>
+
+        {lowCredits && (
+          <div className="mt-3 rounded-lg bg-amber-100 px-4 py-3 text-sm font-semibold text-amber-800 border border-amber-200 flex items-center gap-2">
+            <AlertTriangle size={16} />
+            Te estás quedando con muy pocos créditos. Sube un depósito rápidamente.
+          </div>
+        )}
+        
         {loading && <p className="mt-2 text-xs text-slate-500">Actualizando datos financieros...</p>}
         {loadMessage && <p className="mt-2 rounded-lg bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-800">{loadMessage}</p>}
       </article>
@@ -311,40 +332,112 @@ export function WorkerFinanceView() {
           </div>
         </article>
 
-        <article className="rounded-2xl border border-slate-200 bg-white p-4">
-          <p className="text-sm font-bold text-slate-900">Subir Comprobante de Depósito</p>
-          <p className="mt-1 text-xs text-slate-600">Recarga créditos para seguir tomando trabajos.</p>
-          <div className="mt-3 grid gap-2">
-            <input
-              value={depositAmount}
-              onChange={(event) => setDepositAmount(event.target.value)}
-              type="number"
-              min="0.01"
-              step="0.01"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Monto del depósito"
-            />
-            <select
-              value={depositPaymentMethod}
-              onChange={(event) => setDepositPaymentMethod(event.target.value as "DEPOSITO" | "TRANSFERENCIA")}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="DEPOSITO">Depósito</option>
-              <option value="TRANSFERENCIA">Transferencia</option>
-            </select>
-            <label className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-brand-100 px-3 py-2 text-sm font-bold text-brand-900 hover:bg-brand-200">
-              Subir comprobante
-              <input type="file" accept="image/*" onChange={onUploadDepositImage} className="hidden" disabled={depositBusy} />
-            </label>
-            <button
-              onClick={onSubmitDeposit}
-              disabled={depositBusy || !depositImagePath}
-              className="rounded-lg bg-brand-900 px-3 py-2 text-sm font-bold text-white disabled:opacity-60"
-            >
-              {depositBusy ? "Enviando..." : "Enviar depósito"}
-            </button>
+        <article className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-emerald-900">💰 Recargar Créditos con Depósito</p>
+              <p className="mt-1 text-xs text-emerald-700">Sigue estos pasos para validar tu recarga:</p>
+            </div>
           </div>
-          {depositMessage && <p className="mt-2 text-xs font-semibold text-slate-700">{depositMessage}</p>}
+          
+          <div className="space-y-3">
+            <div className="rounded-lg bg-white p-3 border border-emerald-200">
+              <p className="text-xs font-bold text-slate-900">Paso 1: Elige monto y método</p>
+              <p className="text-xs text-slate-600 mt-1">¿Cuánto dinero vas a ingresar?</p>
+              <input
+                value={depositAmount}
+                onChange={(event) => setDepositAmount(event.target.value)}
+                type="number"
+                min="0.01"
+                step="0.01"
+                className="mt-2 w-full rounded-lg border border-emerald-300 px-3 py-2 text-sm font-semibold"
+                placeholder="Ej: 500"
+              />
+              <p className="text-xs text-slate-700 mt-2 font-semibold">¿Cómo vas a transferir?</p>
+              <select
+                value={depositPaymentMethod}
+                onChange={(event) => setDepositPaymentMethod(event.target.value as "DEPOSITO" | "TRANSFERENCIA")}
+                className="mt-1 w-full rounded-lg border border-emerald-300 px-3 py-2 text-sm"
+              >
+                <option value="DEPOSITO">🏦 Depósito en cuenta bancaria</option>
+                <option value="TRANSFERENCIA">💳 Transferencia desde aplicación</option>
+              </select>
+            </div>
+
+            <div className="rounded-lg bg-white p-3 border border-emerald-200">
+              <p className="text-xs font-bold text-slate-900">Paso 2: Sube el comprobante</p>
+              <p className="text-xs text-slate-600 mt-1">Foto del recibo o captura de pantalla de la transacción</p>
+              {depositImagePath && (
+                <div className="mt-2 rounded-lg border-2 border-emerald-300 bg-emerald-100 p-2">
+                  <p className="text-xs font-bold text-emerald-900">✅ Comprobante cargado</p>
+                </div>
+              )}
+              <label className="mt-2 inline-flex cursor-pointer items-center justify-center w-full rounded-lg bg-emerald-100 px-3 py-2 text-sm font-bold text-emerald-900 hover:bg-emerald-200 transition border border-emerald-300">
+                {depositImagePath ? "Cambiar comprobante" : "📸 Subir comprobante"}
+                <input type="file" accept="image/*" onChange={onUploadDepositImage} className="hidden" disabled={depositBusy} />
+              </label>
+            </div>
+
+            <div className="rounded-lg bg-white p-3 border border-emerald-200">
+              <p className="text-xs font-bold text-slate-900">Paso 3: Envía para validación</p>
+              <p className="text-xs text-slate-600 mt-1">Un administrador revisará tu comprobante en max 24hs</p>
+              <button
+                onClick={onSubmitDeposit}
+                disabled={depositBusy || !depositImagePath}
+                className="mt-2 w-full rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {depositBusy ? "Enviando..." : "Enviar para validación"}
+              </button>
+            </div>
+          </div>
+
+          {depositMessage && (
+            <p className={"mt-3 rounded-lg px-3 py-2 text-xs font-semibold " + (
+              depositMessage.includes("cargado")
+                ? "bg-emerald-100 text-emerald-800"
+                : depositMessage.includes("Depósito enviado")
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "bg-red-100 text-red-700"
+            )}>
+              {depositMessage}
+            </p>
+          )}
+        </article>
+
+        <article className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-bold text-slate-900">Historial de Mis Depósitos</p>
+            <HelpTooltip text="APPROVED = aprobado y tus créditos ya están disponibles. PENDING = en revisión. REJECTED = fue rechazado, contacta soporte." />
+          </div>
+          {workerDeposits.length === 0 ? (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              No tienes depósitos registrados aún. Sube uno en el formulario de arriba.
+            </p>
+          ) : (
+            <div className="max-h-[280px] space-y-2 overflow-auto pr-1">
+              {workerDeposits.map((deposit) => (
+                <article key={deposit.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-slate-900">$ {deposit.amount.toFixed(2)}</p>
+                    <span
+                      className={
+                        "rounded-full px-3 py-1 text-[11px] font-bold " +
+                        (deposit.status === "APPROVED"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : deposit.status === "REJECTED"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-amber-100 text-amber-800")
+                      }
+                    >
+                      {deposit.status === "APPROVED" ? "✅ Aprobado" : deposit.status === "REJECTED" ? "❌ Rechazado" : "⏳ Pendiente"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600">Método: {deposit.paymentMethod === "DEPOSITO" ? "🏦 Bancario" : "💳 App"}</p>
+                  <p className="text-xs text-slate-500">{new Date(deposit.createdAt).toLocaleDateString()}</p>
+                </article>
+              ))}
+            </div>
+          )}
         </article>
       </div>
     </section>

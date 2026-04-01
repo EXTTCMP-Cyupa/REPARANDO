@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { listNeedBids, listServiceNeeds, publishServiceNeed, selectNeedBid, submitBidProposal } from "../../lib/api";
+import { HelpTooltip, InfoBox } from "../../components/HelpTooltip";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 type BidItem = {
   id: string;
@@ -219,12 +221,21 @@ export function BiddingView() {
   const onPublishNeed = async () => {
     if (!session) return;
     if (role !== "CLIENT") {
-      setMessage("Solo clientes pueden publicar necesidades.");
+      setMessage("❌ Solo clientes pueden publicar necesidades. Si eres trabajador, ve a la pestaña 'Licitación' para postular.");
       return;
     }
 
-    if (!title.trim() || !description.trim() || !category.trim()) {
-      setMessage("Completa titulo, descripcion y categoria para publicar.");
+    // Validaciones detalladas
+    if (!title.trim()) {
+      setMessage("⚠️ El título es obligatorio. Escribe qué necesitas (ej: 'Reparar fuga en cocina').");
+      return;
+    }
+    if (!description.trim()) {
+      setMessage("⚠️ La descripción es necesaria. Explica el problema, ubicación y detalles importantes.");
+      return;
+    }
+    if (!category.trim()) {
+      setMessage("⚠️ Escoge una categoría. Usa el buscador de arriba o selecciona de las sugeridas.");
       return;
     }
 
@@ -259,9 +270,9 @@ export function BiddingView() {
       setUrgencyPreset("HOY");
       setPreferredDate("");
       await loadNeeds();
-      setMessage(`Necesidad publicada: ${created.id}`);
+      setMessage(`✅ Oportunidad publicada. Los técnicos ya pueden verla y enviar propuestas.`);
     } catch {
-      setMessage("No fue posible publicar la necesidad.");
+      setMessage("❌ No se pudo publicar la oportunidad. Intenta de nuevo en unos momentos.");
     } finally {
       setBusy(false);
     }
@@ -270,13 +281,31 @@ export function BiddingView() {
   const onSubmitBid = async () => {
     if (!session || !selectedNeedId) return;
     if (role !== "WORKER") {
-      setMessage("Solo trabajadores pueden enviar propuestas.");
+      setMessage("❌ Solo técnicos/trabajadores pueden enviar propuestas.");
       return;
     }
 
     const laborCost = Number(costInput);
-    if (!Number.isFinite(laborCost) || laborCost <= 0 || !summaryInput.trim()) {
-      setMessage("Ingresa un costo valido y un resumen para enviar la propuesta.");
+    
+    // Validaciones detalladas
+    if (!costInput.trim()) {
+      setMessage("⚠️ Ingresa el precio que cobrarías por este trabajo.");
+      return;
+    }
+    if (!Number.isFinite(laborCost)) {
+      setMessage("⚠️ El precio debe ser un número válido (ej: 150.50).");
+      return;
+    }
+    if (laborCost <= 0) {
+      setMessage("⚠️ El precio debe ser mayor a cero.");
+      return;
+    }
+    if (!summaryInput.trim()) {
+      setMessage("⚠️ Escribe una breve propuesta (por qué tú, cómo lo harías, materiales necesarios, etc.).");
+      return;
+    }
+    if (summaryInput.trim().length < 10) {
+      setMessage("⚠️ La propuesta debe tener al menos 10 caracteres para que la consideren.");
       return;
     }
 
@@ -295,9 +324,13 @@ export function BiddingView() {
       setSummaryInput("");
       await loadBidsForNeed(selectedNeedId);
       await loadNeeds();
-      setMessage("Propuesta enviada correctamente.");
-    } catch {
-      setMessage("No fue posible enviar la propuesta.");
+      setMessage("✅ Propuesta enviada exitosamente. El cliente la revisará pronto.");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("insufficient")) {
+        setMessage("❌ Saldo insuficiente. Carga crédito antes de postular (el crédito mínimo es $" + (session?.user.credits ?? "3") + ").");
+      } else {
+        setMessage("❌ No se pudo enviar la propuesta. Intenta de nuevo.");
+      }
     } finally {
       setBusy(false);
     }
@@ -309,11 +342,11 @@ export function BiddingView() {
     try {
       setBusy(true);
       await selectNeedBid(selectedNeedId, bidId, session.user.userId, session.accessToken);
-      setMessage("Propuesta seleccionada. El trabajo fue asignado y ya no aparecerá para otros técnicos.");
+      setMessage("✅ Propuesta seleccionada. El trabajo fue asignado a este técnico y ya no aparecerá para otros.");
       await loadNeeds();
       await loadBidsForNeed(selectedNeedId);
     } catch {
-      setMessage("No fue posible seleccionar la propuesta.");
+      setMessage("❌ No se pudo asignar esta propuesta. Intenta de nuevo.");
     } finally {
       setBusy(false);
     }
@@ -359,9 +392,45 @@ export function BiddingView() {
   }, [categoryQuery]);
 
   return (
-    <section className="card">
-      <p className="badge mb-4">Escenario B: Licitacion</p>
-      <div className={"grid gap-3 " + (role === "WORKER" ? "lg:grid-cols-[1.1fr_1fr]" : "md:grid-cols-2")}>
+    <section className="space-y-4">
+      {/* Role-specific header */}
+      <article className="rounded-lg border-2 border-brand-900 bg-gradient-to-r from-brand-900 to-brand-700 p-6 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            {role === "CLIENT" ? (
+              <>
+                <h1 className="text-2xl font-extrabold">Crear Oportunidades & Revisar Propuestas</h1>
+                <p className="mt-1 text-sm text-brand-100">Publica trabajos, recibe ofertas de técnicos y selecciona al mejor.</p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-2xl font-extrabold">Busca Trabajos & Envía Propuestas</h1>
+                <p className="mt-1 text-sm text-brand-100">Ve oportunidades disponibles y postúlate con tus mejores precios.</p>
+              </>
+            )}
+          </div>
+          <div className="rounded-full bg-white/20 px-4 py-2">
+            <p className="text-sm font-bold">Modo: {role === "CLIENT" ? "Cliente" : "Técnico"}</p>
+          </div>
+        </div>
+      </article>
+
+      {/* Messages */}
+      {message && (
+        <div className={`rounded-lg border px-4 py-3 text-sm font-semibold ${
+          message.includes("✅")
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : message.includes("❌")
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-amber-200 bg-amber-50 text-amber-800"
+        }`}>
+          {message}
+        </div>
+      )}
+
+      {/* Main content */}
+      <div className="card">
+        <div className={"grid gap-3 " + (role === "WORKER" ? "lg:grid-cols-[1.1fr_1fr]" : "md:grid-cols-2")}>
         {role === "CLIENT" && (
           <div className="rounded-xl border border-brand-100 bg-white p-4">
             <p className="font-bold">Crear nueva oportunidad de trabajo</p>
@@ -705,6 +774,7 @@ export function BiddingView() {
           )}
         </div>
       </div>}
+      </div>
     </section>
   );
 }
