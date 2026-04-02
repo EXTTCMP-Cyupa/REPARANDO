@@ -1,8 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { listNeedBids, listServiceNeeds, publishServiceNeed, selectNeedBid, submitBidProposal } from "../../lib/api";
-import { HelpTooltip, InfoBox } from "../../components/HelpTooltip";
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { InfoBox } from "../../components/HelpTooltip";
+import {
+  Building2,
+  CarFront,
+  ChevronDown,
+  ChevronUp,
+  Home,
+  Laptop,
+  Trees,
+  UtensilsCrossed,
+  Wrench,
+  type LucideIcon
+} from "lucide-react";
 
 const CLIENT_NEED_DRAFT_PREFIX = "reparando:bidding:client-draft:";
 const TITLE_MIN_LENGTH = 8;
@@ -94,6 +105,35 @@ const CATEGORY_OPTIONS: CategoryOption[] = [
   { label: "Portones y puertas automáticas", group: "EXTERIORES", keywords: ["porton", "motor", "automático"] }
 ];
 
+const GROUP_ICON_MAP: Record<CategoryOption["group"], LucideIcon> = {
+  HOGAR: Home,
+  EMPRESA: Building2,
+  VEHICULOS: CarFront,
+  TECNICO: Laptop,
+  COCINA: UtensilsCrossed,
+  EXTERIORES: Trees
+};
+
+type GeneralCategoryTile = {
+  label: string;
+  group: CategoryOption["group"];
+  seedCategory: string;
+  tags: string[];
+};
+
+const GENERAL_CATEGORY_TILES: GeneralCategoryTile[] = [
+  { label: "Plomeria", group: "HOGAR", seedCategory: "Plomería y fugas", tags: ["agua", "tuberia", "fuga"] },
+  { label: "Carpinteria", group: "HOGAR", seedCategory: "Carpintería general", tags: ["madera", "mueble", "puerta"] },
+  { label: "Pintura", group: "HOGAR", seedCategory: "Pintura interior", tags: ["pared", "techo", "acabados"] },
+  { label: "Electricidad", group: "HOGAR", seedCategory: "Electricidad residencial", tags: ["cableado", "luces", "tablero"] },
+  { label: "Mecanica", group: "VEHICULOS", seedCategory: "Mecánica automotriz", tags: ["auto", "motor", "frenos"] },
+  { label: "Tecnologia", group: "TECNICO", seedCategory: "Soporte técnico PC/Laptop", tags: ["pc", "laptop", "wifi"] },
+  { label: "Cocina", group: "COCINA", seedCategory: "Reparación de estufas y hornos", tags: ["estufa", "horno", "campana"] },
+  { label: "Jardineria", group: "EXTERIORES", seedCategory: "Jardinería", tags: ["poda", "cesped", "riego"] },
+  { label: "Remodelacion", group: "EMPRESA", seedCategory: "Remodelación de oficinas", tags: ["obra", "adecuacion", "espacios"] },
+  { label: "Cerrajeria", group: "HOGAR", seedCategory: "Cerrajería", tags: ["cerradura", "llave", "seguridad"] }
+];
+
 export function BiddingView() {
   const { session } = useAuth();
   const role = session?.user.role;
@@ -110,6 +150,12 @@ export function BiddingView() {
   const [categoryQuery, setCategoryQuery] = useState("");
   const [urgencyPreset, setUrgencyPreset] = useState<"HOY" | "MANANA" | "SEMANA" | "FECHA">("HOY");
   const [preferredDate, setPreferredDate] = useState("");
+  const [createStep, setCreateStep] = useState<1 | 2 | 3 | 4>(1);
+  const [subCategory, setSubCategory] = useState("");
+  const [locationAddress, setLocationAddress] = useState("Quito, Pichincha");
+  const [locationReference, setLocationReference] = useState("");
+  const [budgetEstimate, setBudgetEstimate] = useState("");
+  const [photoNames, setPhotoNames] = useState<string[]>([]);
 
   // Needs and bidding state
   const [needs, setNeeds] = useState<NeedItem[]>([]);
@@ -248,18 +294,28 @@ export function BiddingView() {
         title?: string;
         description?: string;
         category?: string;
+        subCategory?: string;
         categoryQuery?: string;
         urgencyPreset?: "HOY" | "MANANA" | "SEMANA" | "FECHA";
         preferredDate?: string;
+        createStep?: 1 | 2 | 3 | 4;
+        locationAddress?: string;
+        locationReference?: string;
+        budgetEstimate?: string;
         savedAt?: string;
       };
 
       setTitle(parsed.title ?? "");
       setDescription(parsed.description ?? "");
       setCategory(parsed.category ?? "");
+      setSubCategory(parsed.subCategory ?? "");
       setCategoryQuery(parsed.categoryQuery ?? "");
       setUrgencyPreset(parsed.urgencyPreset ?? "HOY");
       setPreferredDate(parsed.preferredDate ?? "");
+      setCreateStep(parsed.createStep ?? 1);
+      setLocationAddress(parsed.locationAddress ?? "Quito, Pichincha");
+      setLocationReference(parsed.locationReference ?? "");
+      setBudgetEstimate(parsed.budgetEstimate ?? "");
       setDraftSavedAt(parsed.savedAt ?? null);
     } catch {
       // Ignore malformed local drafts.
@@ -273,9 +329,14 @@ export function BiddingView() {
       title,
       description,
       category,
+      subCategory,
       categoryQuery,
       urgencyPreset,
       preferredDate,
+      createStep,
+      locationAddress,
+      locationReference,
+      budgetEstimate,
       savedAt: new Date().toISOString()
     };
 
@@ -285,7 +346,21 @@ export function BiddingView() {
     } catch {
       // Ignore storage quota errors.
     }
-  }, [clientDraftKey, role, title, description, category, categoryQuery, urgencyPreset, preferredDate]);
+  }, [
+    clientDraftKey,
+    role,
+    title,
+    description,
+    category,
+    subCategory,
+    categoryQuery,
+    urgencyPreset,
+    preferredDate,
+    createStep,
+    locationAddress,
+    locationReference,
+    budgetEstimate
+  ]);
 
   const onPublishNeed = async () => {
     if (!session) return;
@@ -321,7 +396,16 @@ export function BiddingView() {
       return;
     }
 
-    const descriptionPayload = `${description.trim()}\n\nUrgencia solicitada: ${publishUrgencyLabel}`;
+    const detailBlocks = [
+      description.trim(),
+      `Urgencia solicitada: ${publishUrgencyLabel}`,
+      `Ubicación: ${locationAddress.trim() || "Por confirmar"}`,
+      locationReference.trim() ? `Referencia: ${locationReference.trim()}` : "",
+      subCategory.trim() ? `Subcategoría: ${subCategory.trim()}` : "",
+      budgetEstimate.trim() ? `Presupuesto estimado: $${budgetEstimate.trim()}` : ""
+    ].filter(Boolean);
+
+    const descriptionPayload = detailBlocks.join("\n\n");
 
     try {
       setBusy(true);
@@ -338,9 +422,15 @@ export function BiddingView() {
       setTitle("");
       setDescription("");
       setCategory("");
+      setSubCategory("");
       setCategoryQuery("");
       setUrgencyPreset("HOY");
       setPreferredDate("");
+      setCreateStep(1);
+      setLocationAddress("Quito, Pichincha");
+      setLocationReference("");
+      setBudgetEstimate("");
+      setPhotoNames([]);
       if (clientDraftKey) {
         window.localStorage.removeItem(clientDraftKey);
       }
@@ -467,6 +557,19 @@ export function BiddingView() {
     });
   }, [categoryQuery]);
 
+  const filteredGeneralTiles = useMemo(() => {
+    const query = categoryQuery.trim().toLowerCase();
+    if (!query) return GENERAL_CATEGORY_TILES;
+    return GENERAL_CATEGORY_TILES.filter((tile) => {
+      return (
+        tile.label.toLowerCase().includes(query) ||
+        tile.group.toLowerCase().includes(query) ||
+        tile.seedCategory.toLowerCase().includes(query) ||
+        tile.tags.some((tag) => tag.toLowerCase().includes(query))
+      );
+    });
+  }, [categoryQuery]);
+
   const publishUrgencyLabel = useMemo(() => {
     if (urgencyPreset === "HOY") return "Urgente (hoy)";
     if (urgencyPreset === "MANANA") return "Mañana";
@@ -478,6 +581,7 @@ export function BiddingView() {
     const titleLen = title.trim().length;
     const descriptionLen = description.trim().length;
     const categoryLen = category.trim().length;
+    const locationLen = locationAddress.trim().length;
     const hasDateIfNeeded = urgencyPreset !== "FECHA" || Boolean(preferredDate);
 
     return {
@@ -486,10 +590,39 @@ export function BiddingView() {
       titleReady: titleLen >= TITLE_MIN_LENGTH,
       descriptionReady: descriptionLen >= DESCRIPTION_MIN_LENGTH,
       categoryReady: categoryLen > 0,
+      logisticsReady: locationLen > 0,
       hasDateIfNeeded,
-      ready: titleLen >= TITLE_MIN_LENGTH && descriptionLen >= DESCRIPTION_MIN_LENGTH && categoryLen > 0 && hasDateIfNeeded
+      ready:
+        titleLen >= TITLE_MIN_LENGTH &&
+        descriptionLen >= DESCRIPTION_MIN_LENGTH &&
+        categoryLen > 0 &&
+        locationLen > 0 &&
+        hasDateIfNeeded
     };
-  }, [title, description, category, urgencyPreset, preferredDate]);
+  }, [title, description, category, locationAddress, urgencyPreset, preferredDate]);
+
+  const canContinueStep1 = publishValidation.titleReady && publishValidation.descriptionReady;
+  const canContinueStep2 = publishValidation.categoryReady;
+  const canContinueStep3 = publishValidation.logisticsReady && publishValidation.hasDateIfNeeded;
+
+  const onUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setMessage("⚠️ Tu navegador no permite geolocalización. Ingresa la dirección manualmente.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude.toFixed(5);
+        const lng = position.coords.longitude.toFixed(5);
+        setLocationAddress(`Quito, Pichincha (${lat}, ${lng})`);
+        setMessage("✅ Ubicación actual cargada. Puedes ajustar la dirección si hace falta.");
+      },
+      () => {
+        setMessage("⚠️ No pudimos leer tu ubicación. Revisa permisos o escribe la dirección manualmente.");
+      }
+    );
+  };
 
   // Tab buttons styles
   const tabButtonClass = (tab: string, active: boolean) =>
@@ -579,13 +712,40 @@ export function BiddingView() {
           <div className="rounded-xl border border-brand-100 bg-white p-6 space-y-4">
             <div>
               <h2 className="text-xl font-bold">Publicar Nueva Oportunidad de Trabajo</h2>
-              <p className="text-sm text-slate-600">Detalla el trabajo para recibir mejores propuestas de técnicos.</p>
+              <p className="text-sm text-slate-600">Creación en 4 pasos claros para publicar sin confusiones.</p>
               {draftSavedAt && (
                 <p className="mt-2 text-xs text-slate-500">
                   🔄 Borrador guardado: {new Date(draftSavedAt).toLocaleTimeString()}
                 </p>
               )}
             </div>
+
+            <ol className="grid gap-2 sm:grid-cols-4">
+              {[
+                { id: 1, label: "¿Qué necesitas?" },
+                { id: 2, label: "Categoría y Habilidades" },
+                { id: 3, label: "¿Cuándo y Dónde?" },
+                { id: 4, label: "Finalizar" }
+              ].map((stepItem) => {
+                const isActive = createStep === stepItem.id;
+                const isCompleted = createStep > stepItem.id;
+                return (
+                  <li
+                    key={stepItem.id}
+                    className={
+                      "rounded-lg border px-3 py-2 text-center text-xs font-bold transition " +
+                      (isActive
+                        ? "border-brand-900 bg-brand-900 text-white"
+                        : isCompleted
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-brand-100 bg-white text-brand-900")
+                    }
+                  >
+                    Paso {stepItem.id}: {stepItem.label}
+                  </li>
+                );
+              })}
+            </ol>
 
             <div className="grid gap-4 md:grid-cols-3">
               <div className="rounded-lg border border-brand-100 bg-brand-50 px-4 py-3">
@@ -612,79 +772,158 @@ export function BiddingView() {
               }
             />
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Título del trabajo (mínimo 8 caracteres)</label>
-                <input
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  className="w-full rounded-lg border border-brand-200 px-4 py-2"
-                  placeholder="Ej: Reparar fuga en cocina"
-                />
-                <p className="text-xs text-slate-500 mt-1">{publishValidation.titleLen}/{TITLE_MIN_LENGTH} mínimo</p>
-              </div>
+            <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
+              <article
+                onClick={() => setCreateStep(1)}
+                className={
+                  "rounded-xl border bg-brand-50 p-4 transition " +
+                  (createStep === 1 ? "border-brand-900 ring-2 ring-brand-200" : "border-brand-100")
+                }
+              >
+                <p className="mb-3 text-sm font-bold text-brand-900">1. ¿Qué necesitas? (Detalles)</p>
+                <div>
+                  <label className="mb-2 block text-xs font-semibold text-slate-700">Título del trabajo</label>
+                  <input
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    className="w-full rounded-lg border border-brand-200 px-3 py-2 text-sm"
+                    placeholder="Ej: Reparar fuga en cocina"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-500">{publishValidation.titleLen}/{TITLE_MIN_LENGTH} mínimo</p>
+                </div>
+                <div className="mt-3">
+                  <label className="mb-2 block text-xs font-semibold text-slate-700">Describe el trabajo</label>
+                  <textarea
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    className="min-h-28 w-full rounded-lg border border-brand-200 px-3 py-2 text-sm"
+                    placeholder="Alcance, problema y detalles importantes"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-500">{publishValidation.descriptionLen}/{DESCRIPTION_MIN_LENGTH} mínimo</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCreateStep(2)}
+                  disabled={!canContinueStep1}
+                  className="mt-3 w-full rounded-lg bg-brand-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Siguiente
+                </button>
+              </article>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Descripción detallada (mínimo 24 caracteres)</label>
-                <textarea
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  className="w-full rounded-lg border border-brand-200 px-4 py-2 min-h-24"
-                  placeholder="Describe el alcance, urgencia, ubicación y detalles importantes"
-                />
-                <p className="text-xs text-slate-500 mt-1">{publishValidation.descriptionLen}/{DESCRIPTION_MIN_LENGTH} mínimo</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Categoría</label>
-                <input
-                  value={category}
-                  onChange={(event) => setCategory(event.target.value)}
-                  className="w-full rounded-lg border border-brand-200 px-4 py-2 mb-2"
-                  placeholder="Categoría seleccionada"
-                  readOnly
-                />
+              <article
+                onClick={() => setCreateStep(2)}
+                className={
+                  "rounded-xl border bg-brand-50 p-4 transition " +
+                  (createStep === 2 ? "border-brand-900 ring-2 ring-brand-200" : "border-brand-100")
+                }
+              >
+                <p className="mb-3 text-sm font-bold text-brand-900">2. Categoría y Habilidades</p>
                 <input
                   value={categoryQuery}
-                  onChange={(event) => setCategoryQuery(event.target.value)}
-                  className="w-full rounded-lg border border-brand-200 px-4 py-2 text-sm"
-                  placeholder="Busca: pintura, electricidad, plomería, etc."
+                  onChange={(event) => {
+                    setCategoryQuery(event.target.value);
+                    setCategory(event.target.value);
+                  }}
+                  className="mb-2 w-full rounded-lg border border-brand-200 px-3 py-2 text-sm"
+                  placeholder="Categoria principal: busca o selecciona"
                 />
-                <div className="max-h-48 space-y-2 overflow-auto rounded-lg border border-brand-100 bg-brand-50 p-3 mt-2">
-                  {filteredCategoryOptions.slice(0, 20).map((option) => (
-                    <button
-                      key={option.label}
-                      type="button"
-                      onClick={() => {
-                        setCategory(option.label);
-                      }}
-                      className={
-                        "mr-2 mb-2 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition " +
-                        (category === option.label ? "bg-brand-900 text-white" : "bg-white text-brand-900 hover:bg-brand-100")
-                      }
-                    >
-                      <span>{option.label}</span>
-                      <span className="opacity-70">· {option.group}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+                <input
+                  value={subCategory}
+                  onChange={(event) => setSubCategory(event.target.value)}
+                  className="mb-2 w-full rounded-lg border border-brand-200 px-3 py-2 text-sm"
+                  placeholder="Subcategoría (opcional)"
+                />
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">¿Para cuándo lo necesitas?</label>
-                <div className="grid gap-2 sm:grid-cols-3 mb-3">
+                <div className="mt-3 grid max-h-64 grid-cols-2 gap-2 overflow-auto rounded-lg border border-brand-100 bg-white p-2">
+                  {filteredGeneralTiles.map((tile) => {
+                    const Icon = GROUP_ICON_MAP[tile.group] ?? Wrench;
+                    return (
+                      <button
+                        key={tile.label}
+                        type="button"
+                        onClick={() => {
+                          setCategory(tile.seedCategory);
+                          setCategoryQuery(tile.label);
+                          setSubCategory(tile.label);
+                        }}
+                        className={
+                          "rounded-lg border px-2 py-2 text-left text-[11px] font-semibold transition " +
+                          (subCategory === tile.label || category === tile.seedCategory
+                            ? "border-brand-900 bg-brand-900 text-white"
+                            : "border-brand-100 bg-brand-50 text-brand-900 hover:border-brand-300")
+                        }
+                      >
+                        <span className="mb-1 inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/90 text-brand-900">
+                          <Icon size={14} />
+                        </span>
+                        <p className="line-clamp-2">{tile.label}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setCreateStep(3)}
+                  disabled={!canContinueStep2}
+                  className="mt-3 w-full rounded-lg bg-brand-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Siguiente
+                </button>
+              </article>
+
+              <article
+                onClick={() => setCreateStep(3)}
+                className={
+                  "rounded-xl border bg-brand-50 p-4 transition " +
+                  (createStep === 3 ? "border-brand-900 ring-2 ring-brand-200" : "border-brand-100")
+                }
+              >
+                <p className="mb-3 text-sm font-bold text-brand-900">3. ¿Cuándo y Dónde? (Logística)</p>
+
+                <div className="overflow-hidden rounded-lg border border-brand-100 bg-white">
+                  <iframe
+                    title="Mapa de ubicación"
+                    src="https://maps.google.com/maps?q=Quito%2C%20Pichincha&t=&z=13&ie=UTF8&iwloc=&output=embed"
+                    className="h-40 w-full"
+                    loading="lazy"
+                  />
+                </div>
+
+                <input
+                  value={locationAddress}
+                  onChange={(event) => setLocationAddress(event.target.value)}
+                  className="mt-3 w-full rounded-lg border border-brand-200 px-3 py-2 text-sm"
+                  placeholder="Quito, Pichincha"
+                />
+                <input
+                  value={locationReference}
+                  onChange={(event) => setLocationReference(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-brand-200 px-3 py-2 text-sm"
+                  placeholder="Referencia (opcional)"
+                />
+                <button
+                  type="button"
+                  onClick={onUseCurrentLocation}
+                  className="mt-2 w-full rounded-lg bg-brand-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-brand-800"
+                >
+                  Usar mi ubicación actual
+                </button>
+
+                <div className="mt-3 grid gap-2 grid-cols-3">
                   {[
-                    { id: "HOY", label: "🔥 Urgente (hoy)" },
-                    { id: "MANANA", label: "📅 Mañana" },
-                    { id: "SEMANA", label: "📆 Próxima semana" }
+                    { id: "HOY", label: "Urgente" },
+                    { id: "MANANA", label: "Mañana" },
+                    { id: "SEMANA", label: "Próxima" }
                   ].map((option) => (
                     <button
                       key={option.id}
                       type="button"
                       onClick={() => setUrgencyPreset(option.id as "HOY" | "MANANA" | "SEMANA")}
                       className={
-                        "rounded-lg px-3 py-2 text-sm font-bold transition " +
-                        (urgencyPreset === option.id ? "bg-brand-900 text-white" : "bg-brand-50 text-brand-900 hover:bg-brand-100")
+                        "rounded-lg px-2 py-2 text-xs font-bold transition " +
+                        (urgencyPreset === option.id ? "bg-brand-900 text-white" : "bg-white text-brand-900 hover:bg-brand-100")
                       }
                     >
                       {option.label}
@@ -692,7 +931,7 @@ export function BiddingView() {
                   ))}
                 </div>
 
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
                   <input
                     type="date"
                     value={preferredDate}
@@ -702,7 +941,7 @@ export function BiddingView() {
                         setUrgencyPreset("FECHA");
                       }
                     }}
-                    className="rounded-lg border border-brand-200 px-4 py-2"
+                    className="rounded-lg border border-brand-200 px-3 py-2 text-sm"
                   />
                   <button
                     type="button"
@@ -710,25 +949,81 @@ export function BiddingView() {
                       setPreferredDate("");
                       setUrgencyPreset("HOY");
                     }}
-                    className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200 transition"
+                    className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-200"
                   >
                     Limpiar
                   </button>
                 </div>
-                <p className="text-xs text-slate-600 mt-2">Urgencia: <strong>{publishUrgencyLabel}</strong></p>
-              </div>
+
+                <p className="mt-2 text-[11px] text-slate-600">Urgencia: <strong>{publishUrgencyLabel}</strong></p>
+
+                <button
+                  type="button"
+                  onClick={() => setCreateStep(4)}
+                  disabled={!canContinueStep3}
+                  className="mt-3 w-full rounded-lg bg-brand-900 px-3 py-2 text-xs font-bold text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Siguiente
+                </button>
+              </article>
+
+              <article
+                onClick={() => setCreateStep(4)}
+                className={
+                  "rounded-xl border bg-brand-50 p-4 transition " +
+                  (createStep === 4 ? "border-brand-900 ring-2 ring-brand-200" : "border-brand-100")
+                }
+              >
+                <p className="mb-3 text-sm font-bold text-brand-900">4. Finalizar (Presupuesto y Fotos)</p>
+                <input
+                  type="number"
+                  min="0"
+                  value={budgetEstimate}
+                  onChange={(event) => setBudgetEstimate(event.target.value)}
+                  className="w-full rounded-lg border border-brand-200 px-3 py-2 text-sm"
+                  placeholder="Presupuesto estimado (opcional)"
+                />
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(event) => {
+                    const files = Array.from(event.target.files ?? []);
+                    setPhotoNames(files.slice(0, 4).map((file) => file.name));
+                  }}
+                  className="mt-3 w-full rounded-lg border border-dashed border-brand-200 bg-white px-3 py-3 text-sm"
+                />
+                {photoNames.length > 0 && (
+                  <p className="mt-2 text-[11px] text-slate-600">Fotos: {photoNames.join(", ")}</p>
+                )}
+
+                <button
+                  onClick={onPublishNeed}
+                  disabled={busy || !publishValidation.ready}
+                  className="mt-3 w-full rounded-lg bg-brand-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {busy ? "Publicando..." : "Publicar Oportunidad"}
+                </button>
+              </article>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 border-t border-brand-100 pt-4">
+            <div className="grid gap-3 border-t border-brand-100 pt-4 sm:grid-cols-2">
               <button
                 type="button"
                 onClick={() => {
                   setTitle("");
                   setDescription("");
                   setCategory("");
+                  setSubCategory("");
                   setCategoryQuery("");
                   setUrgencyPreset("HOY");
                   setPreferredDate("");
+                  setCreateStep(1);
+                  setLocationAddress("Quito, Pichincha");
+                  setLocationReference("");
+                  setBudgetEstimate("");
+                  setPhotoNames([]);
                   if (clientDraftKey) {
                     window.localStorage.removeItem(clientDraftKey);
                     setDraftSavedAt(null);
@@ -739,13 +1034,9 @@ export function BiddingView() {
               >
                 🗑️ Limpiar Borrador
               </button>
-              <button
-                onClick={onPublishNeed}
-                disabled={busy || !publishValidation.ready}
-                className="w-full rounded-lg bg-brand-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-60 disabled:cursor-not-allowed hover:bg-brand-800 transition"
-              >
-                {busy ? "Publicando..." : "📢 Publicar Oportunidad"}
-              </button>
+              <p className="rounded-lg border border-brand-100 bg-brand-50 px-4 py-2 text-xs text-brand-900">
+                Todo el formulario está visible en una sola página.
+              </p>
             </div>
           </div>
         )}
