@@ -1,5 +1,5 @@
-import { Navigate, Outlet, Route, Routes } from "react-router-dom";
-import { ShellLayout } from "./components/ShellLayout";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { AppLayout } from "./components/AppLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
 import { WorkerDashboard } from "./modules/worker/WorkerDashboard";
@@ -33,14 +33,6 @@ function LoginRedirect() {
     return <Navigate to="/" replace />;
   }
   return <LoginPage />;
-}
-
-function AppLayout() {
-  return (
-    <ShellLayout>
-      <Outlet />
-    </ShellLayout>
-  );
 }
 
 export default function App() {

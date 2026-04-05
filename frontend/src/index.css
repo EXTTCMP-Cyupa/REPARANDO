@@ -25,3 +25,18 @@ body {
 .badge {
   @apply rounded-full bg-brand-100 px-3 py-1 text-xs font-bold text-brand-900;
 }
+
+@keyframes wizard-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.wizard-slide-in {
+  animation: wizard-slide-in 220ms ease-out;
+}
